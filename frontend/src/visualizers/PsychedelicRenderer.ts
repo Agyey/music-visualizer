@@ -59,23 +59,29 @@ export class PsychedelicRenderer {
       this.canvas.height = rect.height || window.innerHeight;
     }
     
+    // Check if canvas already has a WebGL context
     let gl: WebGLRenderingContext | null = null;
     
     try {
-      gl = this.canvas.getContext('webgl', {
-        alpha: false,
-        premultipliedAlpha: false,
-        preserveDrawingBuffer: false,
-        antialias: true,
-        depth: false,
-        stencil: false
-      }) as WebGLRenderingContext | null;
+      // Try to get existing context first
+      gl = this.canvas.getContext('webgl') as WebGLRenderingContext | null;
+      if (!gl) {
+        // Create new context
+        gl = this.canvas.getContext('webgl', {
+          alpha: false,
+          premultipliedAlpha: false,
+          preserveDrawingBuffer: false,
+          antialias: true,
+          depth: false,
+          stencil: false
+        }) as WebGLRenderingContext | null;
+      }
     } catch (e) {
-      console.warn('Standard WebGL failed:', e);
+      console.warn('WebGL context creation failed:', e);
     }
     
     if (!gl || !(gl instanceof WebGLRenderingContext)) {
-      console.error('WebGL not supported');
+      console.warn('WebGL not available for psychedelic renderer, using fallback');
       return;
     }
     
@@ -103,7 +109,8 @@ export class PsychedelicRenderer {
     this.program = this.createPsychedelicProgram(gl);
     
     if (!this.program) {
-      console.error('Failed to create psychedelic shader program');
+      console.error('Failed to create psychedelic shader program, will use fallback rendering');
+      this.gl = null; // Mark as failed so fallback is used
     } else {
       console.log('Psychedelic renderer initialized with advanced shader');
     }
@@ -121,7 +128,7 @@ export class PsychedelicRenderer {
     // Intensity handled via uniforms
   }
 
-  private createPsychedelicProgram(gl: WebGLRenderingContext): WebGLProgram {
+  private createPsychedelicProgram(gl: WebGLRenderingContext): WebGLProgram | null {
     const vertexShaderSource = `
       attribute vec2 a_position;
       void main() {
@@ -373,17 +380,19 @@ export class PsychedelicRenderer {
     return this.createShaderProgram(gl, vertexShaderSource, fragmentShaderSource);
   }
 
-  private createShaderProgram(gl: WebGLRenderingContext, vertexSource: string, fragmentSource: string): WebGLProgram {
+  private createShaderProgram(gl: WebGLRenderingContext, vertexSource: string, fragmentSource: string): WebGLProgram | null {
     const vertexShader = this.compileShader(gl, gl.VERTEX_SHADER, vertexSource);
     const fragmentShader = this.compileShader(gl, gl.FRAGMENT_SHADER, fragmentSource);
     
     if (!vertexShader || !fragmentShader) {
-      throw new Error('Failed to compile shaders');
+      console.error('Failed to compile shaders for psychedelic renderer');
+      return null;
     }
     
     const program = gl.createProgram();
     if (!program) {
-      throw new Error('Failed to create program');
+      console.error('Failed to create WebGL program');
+      return null;
     }
     
     gl.attachShader(program, vertexShader);
@@ -392,8 +401,9 @@ export class PsychedelicRenderer {
     
     if (!gl.getProgramParameter(program, gl.LINK_STATUS)) {
       const info = gl.getProgramInfoLog(program);
+      console.error('Failed to link psychedelic shader program:', info);
       gl.deleteProgram(program);
-      throw new Error('Failed to link program: ' + info);
+      return null;
     }
     
     return program;
@@ -450,13 +460,60 @@ export class PsychedelicRenderer {
   }
 
   render(_time: number) {
+    // Ensure canvas has dimensions
+    if (this.canvas.width === 0 || this.canvas.height === 0) {
+      const rect = this.canvas.getBoundingClientRect();
+      if (rect.width > 0 && rect.height > 0) {
+        this.canvas.width = rect.width;
+        this.canvas.height = rect.height;
+      } else {
+        return; // Can't render without dimensions
+      }
+    }
+    
     if (!this.gl || !this.program) {
       this.initWebGL();
       if (!this.gl || !this.program || !this.positionBuffer) {
+        // Fallback to 2D canvas rendering
         const ctx = this.canvas.getContext('2d');
         if (ctx) {
           ctx.fillStyle = 'rgb(5, 6, 10)';
           ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
+          
+          // Draw a simple psychedelic pattern as fallback
+          const centerX = this.canvas.width / 2;
+          const centerY = this.canvas.height / 2;
+          const maxRadius = Math.min(this.canvas.width, this.canvas.height) / 2;
+          
+          const time = (performance.now() / 1000) - this.startTime;
+          const bass = this.features.bass;
+          const energy = this.features.energy;
+          
+          // Draw concentric circles with audio reactivity
+          for (let i = 0; i < 10; i++) {
+            const radius = (maxRadius * (i + 1) / 10) * (1 + bass * 0.3);
+            const hue = (time * 20 + i * 30) % 360;
+            ctx.strokeStyle = `hsl(${hue}, 100%, ${50 + energy * 50}%)`;
+            ctx.lineWidth = 2;
+            ctx.beginPath();
+            ctx.arc(centerX, centerY, radius, 0, Math.PI * 2);
+            ctx.stroke();
+          }
+          
+          // Draw rotating lines
+          for (let i = 0; i < 8; i++) {
+            const angle = (time * 0.5 + i * Math.PI / 4) % (Math.PI * 2);
+            const length = maxRadius * (0.5 + energy * 0.5);
+            ctx.strokeStyle = `hsl(${(time * 30 + i * 45) % 360}, 100%, 70%)`;
+            ctx.lineWidth = 2;
+            ctx.beginPath();
+            ctx.moveTo(centerX, centerY);
+            ctx.lineTo(
+              centerX + Math.cos(angle) * length,
+              centerY + Math.sin(angle) * length
+            );
+            ctx.stroke();
+          }
         }
         return;
       }
@@ -470,11 +527,20 @@ export class PsychedelicRenderer {
     const width = this.canvas.width;
     const height = this.canvas.height;
 
+    // Set viewport
+    gl.viewport(0, 0, width, height);
+
     // Clear canvas
     gl.clearColor(0.02, 0.024, 0.04, 1.0);
     gl.clear(gl.COLOR_BUFFER_BIT);
 
     gl.useProgram(this.program);
+    
+    // Check for WebGL errors
+    const error = gl.getError();
+    if (error !== gl.NO_ERROR) {
+      console.warn('WebGL error before rendering:', error);
+    }
 
     // Set attributes
     const positionLocation = gl.getAttribLocation(this.program, 'a_position');

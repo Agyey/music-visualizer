@@ -21,6 +21,7 @@ export const CollapsiblePanel: React.FC<CollapsiblePanelProps> = ({
 }) => {
   const [isExpanded, setIsExpanded] = useState(defaultExpanded);
   const [isMobile, setIsMobile] = useState(false);
+  const panelRef = React.useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     const checkMobile = () => {
@@ -32,12 +33,13 @@ export const CollapsiblePanel: React.FC<CollapsiblePanelProps> = ({
   }, []);
 
   const getPositionStyles = (): Record<string, React.CSSProperties> => {
-    // Calculate safe bottom offset to avoid audio player (80px height + padding)
-    const audioPlayerHeight = 80;
-    const safeBottomOffset = audioPlayerHeight + 20;
+    // Calculate safe bottom offset to avoid audio player
+    // Audio player is at bottom: 10px, height ~80px
+    const audioPlayerHeight = 90; // 80px + 10px margin
+    const baseBottomOffset = audioPlayerHeight;
     
     if (isMobile) {
-      // Mobile: Use full width and stack to prevent overlap
+      // Mobile: Stack panels vertically to prevent overlap
       const baseStyle = {
         left: '10px',
         right: '10px',
@@ -45,21 +47,32 @@ export const CollapsiblePanel: React.FC<CollapsiblePanelProps> = ({
         maxWidth: 'calc(100vw - 20px)',
       };
       
+      // Calculate vertical stacking for bottom panels
+      // Each panel needs space above it for the previous panel
+      let bottomOffset = baseBottomOffset;
+      if (position === 'bottom-center') {
+        bottomOffset += 200; // Center panel is highest
+      } else if (position === 'bottom-right') {
+        bottomOffset += 100; // Right panel is middle
+      }
+      // bottom-left stays at baseBottomOffset
+      
       return {
         'top-left': { ...baseStyle, top: '10px', zIndex: 1002 },
-        'top-right': { ...baseStyle, top: '70px', zIndex: 1001 }, // Offset below top-left
-        'bottom-left': { ...baseStyle, bottom: `${safeBottomOffset + 10}px`, zIndex: 1002 },
-        'bottom-right': { ...baseStyle, bottom: `${safeBottomOffset + 70}px`, zIndex: 1001 }, // Offset above bottom-left
-        'bottom-center': { ...baseStyle, bottom: `${safeBottomOffset + 130}px`, transform: 'none', zIndex: 1000 }, // Further offset
+        'top-right': { ...baseStyle, top: '70px', zIndex: 1001 },
+        'bottom-left': { ...baseStyle, bottom: `${baseBottomOffset}px`, zIndex: 1002 },
+        'bottom-right': { ...baseStyle, bottom: `${bottomOffset}px`, zIndex: 1001 },
+        'bottom-center': { ...baseStyle, bottom: `${bottomOffset + 100}px`, transform: 'none', zIndex: 1000 },
       };
     }
-    // Desktop: Original positioning with proper z-index, accounting for audio player
+    
+    // Desktop: Side-by-side positioning with proper spacing
     return {
       'top-left': { top: '20px', left: '20px', zIndex: 1002 },
       'top-right': { top: '20px', right: '20px', zIndex: 1001 },
-      'bottom-left': { bottom: `${safeBottomOffset}px`, left: '20px', zIndex: 1002 },
-      'bottom-right': { bottom: `${safeBottomOffset}px`, right: '20px', zIndex: 1001 },
-      'bottom-center': { bottom: `${safeBottomOffset}px`, left: '50%', transform: 'translateX(-50%)', zIndex: 1000 },
+      'bottom-left': { bottom: `${baseBottomOffset}px`, left: '20px', zIndex: 1002 },
+      'bottom-right': { bottom: `${baseBottomOffset}px`, right: '20px', zIndex: 1001 },
+      'bottom-center': { bottom: `${baseBottomOffset}px`, left: '50%', transform: 'translateX(-50%)', zIndex: 1000 },
     };
   };
 
@@ -88,6 +101,7 @@ export const CollapsiblePanel: React.FC<CollapsiblePanelProps> = ({
 
   return (
     <div
+      ref={panelRef}
       className={`collapsible-panel ${position} ${isExpanded ? 'expanded' : ''}`}
       style={{
         position: 'fixed',
@@ -102,6 +116,12 @@ export const CollapsiblePanel: React.FC<CollapsiblePanelProps> = ({
         overflow: 'hidden',
         // Scale with zoom
         transformOrigin: position.includes('top') ? 'top' : 'bottom',
+        // Prevent overlap with viewport edges and other elements
+        ...(position.includes('bottom') && {
+          maxHeight: `calc(100vh - ${typeof positionStyles[position]?.bottom === 'string' 
+            ? parseInt(positionStyles[position].bottom as string) 
+            : 100}px - 20px)`,
+        }),
       }}
     >
       {/* Collapsed Header */}

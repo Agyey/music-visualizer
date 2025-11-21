@@ -21,6 +21,9 @@
     "@vitejs/plugin-react": "^4.3.4",
     "typescript": "^5.7.2",
     "vite": "^5.4.21"
+  },
+  "overrides": {
+    "axios": "^1.7.9"
   }
 }
 

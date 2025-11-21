@@ -326,9 +326,59 @@ export class ThreeDRenderer {
   }
 
   render(time: number) {
+    // Ensure canvas has dimensions
+    if (this.canvas.width === 0 || this.canvas.height === 0) {
+      const rect = this.canvas.getBoundingClientRect();
+      if (rect.width > 0 && rect.height > 0) {
+        this.canvas.width = rect.width;
+        this.canvas.height = rect.height;
+      } else {
+        return; // Can't render without dimensions
+      }
+    }
+    
     if (!this.rendererInitialized) {
       this.initThreeJS();
       if (!this.rendererInitialized || !this.renderer || !this.camera || !this.scene) {
+        // Fallback to 2D canvas rendering
+        const ctx = this.canvas.getContext('2d');
+        if (ctx) {
+          ctx.fillStyle = 'rgb(5, 6, 10)';
+          ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
+          
+          // Draw a simple 3D-like shape as fallback
+          const centerX = this.canvas.width / 2;
+          const centerY = this.canvas.height / 2;
+          const size = Math.min(this.canvas.width, this.canvas.height) / 4;
+          const scale = 1 + this.features.bass * 0.3;
+          
+          ctx.strokeStyle = `hsl(${(time * 30) % 360}, 100%, 70%)`;
+          ctx.lineWidth = 2;
+          ctx.save();
+          ctx.translate(centerX, centerY);
+          ctx.rotate(time * 0.5);
+          ctx.scale(scale, scale);
+          
+          // Draw a cube-like shape
+          const points = [
+            [-size, -size], [size, -size], [size, size], [-size, size]
+          ];
+          ctx.beginPath();
+          ctx.moveTo(points[0][0], points[0][1]);
+          for (let i = 1; i < points.length; i++) {
+            ctx.lineTo(points[i][0], points[i][1]);
+          }
+          ctx.closePath();
+          ctx.stroke();
+          
+          // Draw inner shape
+          ctx.strokeStyle = `hsl(${(time * 30 + 180) % 360}, 100%, 70%)`;
+          ctx.beginPath();
+          ctx.arc(0, 0, size * 0.6, 0, Math.PI * 2);
+          ctx.stroke();
+          
+          ctx.restore();
+        }
         return;
       }
     }

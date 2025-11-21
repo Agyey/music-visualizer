@@ -280,7 +280,7 @@ function App() {
           className="audio-player-container"
           style={{
             position: 'fixed',
-            bottom: isMobile ? '10px' : '20px',
+            bottom: '10px',
             left: '50%',
             transform: 'translateX(-50%)',
             zIndex: 998,
@@ -293,6 +293,8 @@ function App() {
             border: '1px solid rgba(100, 200, 255, 0.2)',
             boxShadow: '0 4px 16px rgba(0, 0, 0, 0.4)',
             pointerEvents: 'auto',
+            // Ensure it doesn't overlap with bottom panels
+            marginBottom: '0',
           }}
         >
           <audio

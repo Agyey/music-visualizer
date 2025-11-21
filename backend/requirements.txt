@@ -21,4 +21,7 @@ langdetect==1.0.9
 # Audio processing
 pyloudnorm==0.1.1
 httpx==0.27.2
+# Security updates
+certifi>=2024.8.30
+urllib3>=2.2.3
 

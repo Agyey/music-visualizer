@@ -71,15 +71,24 @@ export class ParticleRendererWebGL {
       this.canvas.height = rect.height || window.innerHeight;
     }
 
-    const gl = this.canvas.getContext('webgl', {
-      alpha: false,
-      premultipliedAlpha: false,
-      preserveDrawingBuffer: false,
-      antialias: true
-    }) as WebGLRenderingContext | null;
+    // Try to get existing context or create new one
+    let gl: WebGLRenderingContext | null = null;
+    try {
+      gl = this.canvas.getContext('webgl') as WebGLRenderingContext | null;
+      if (!gl) {
+        gl = this.canvas.getContext('webgl', {
+          alpha: false,
+          premultipliedAlpha: false,
+          preserveDrawingBuffer: false,
+          antialias: true
+        }) as WebGLRenderingContext | null;
+      }
+    } catch (e) {
+      console.warn('WebGL context creation failed:', e);
+    }
 
     if (!gl) {
-      console.warn('WebGL not available for particle renderer');
+      console.warn('WebGL not available for particle renderer, using fallback');
       return;
     }
 
@@ -89,7 +98,8 @@ export class ParticleRendererWebGL {
 
     this.program = this.createParticleProgram(gl);
     if (!this.program) {
-      console.error('Failed to create particle shader program');
+      console.error('Failed to create particle shader program, will use fallback rendering');
+      this.gl = null; // Mark as failed so fallback is used
       return;
     }
 
@@ -102,7 +112,7 @@ export class ParticleRendererWebGL {
     this.initParticles();
   }
 
-  private createParticleProgram(gl: WebGLRenderingContext): WebGLProgram {
+  private createParticleProgram(gl: WebGLRenderingContext): WebGLProgram | null {
     const vertexShaderSource = `
       attribute vec2 a_position;
       attribute float a_size;
@@ -266,23 +276,26 @@ export class ParticleRendererWebGL {
     return program;
   }
 
-  private createShaderProgram(gl: WebGLRenderingContext, vertexSource: string, fragmentSource: string): WebGLProgram {
+  private createShaderProgram(gl: WebGLRenderingContext, vertexSource: string, fragmentSource: string): WebGLProgram | null {
     const vertexShader = this.compileShader(gl, gl.VERTEX_SHADER, vertexSource);
     const fragmentShader = this.compileShader(gl, gl.FRAGMENT_SHADER, fragmentSource);
     if (!vertexShader || !fragmentShader) {
-      throw new Error('Failed to compile shaders');
+      console.error('Failed to compile particle shaders');
+      return null;
     }
     const program = gl.createProgram();
     if (!program) {
-      throw new Error('Failed to create program');
+      console.error('Failed to create WebGL program for particles');
+      return null;
     }
     gl.attachShader(program, vertexShader);
     gl.attachShader(program, fragmentShader);
     gl.linkProgram(program);
     if (!gl.getProgramParameter(program, gl.LINK_STATUS)) {
       const info = gl.getProgramInfoLog(program);
+      console.error('Failed to link particle shader program:', info);
       gl.deleteProgram(program);
-      throw new Error('Failed to link program: ' + info);
+      return null;
     }
     return program;
   }
@@ -411,18 +424,67 @@ export class ParticleRendererWebGL {
   }
 
   render(time: number) {
+    // Ensure canvas has dimensions
+    if (this.canvas.width === 0 || this.canvas.height === 0) {
+      const rect = this.canvas.getBoundingClientRect();
+      if (rect.width > 0 && rect.height > 0) {
+        this.canvas.width = rect.width;
+        this.canvas.height = rect.height;
+      } else {
+        return; // Can't render without dimensions
+      }
+    }
+    
     if (!this.gl || !this.program || !this.positionBuffer) {
       this.initWebGL();
-      if (!this.gl || !this.program || !this.positionBuffer) return;
+      if (!this.gl || !this.program || !this.positionBuffer) {
+        // Fallback to 2D canvas rendering
+        const ctx = this.canvas.getContext('2d');
+        if (ctx) {
+          ctx.fillStyle = 'rgb(5, 6, 10)';
+          ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
+          
+          // Draw simple particles as fallback
+          const centerX = this.canvas.width / 2;
+          const centerY = this.canvas.height / 2;
+          const particleCount = Math.min(this.particleCount, 500);
+          
+          ctx.globalCompositeOperation = 'lighter';
+          for (let i = 0; i < particleCount; i++) {
+            const angle = (time * 0.5 + i * Math.PI * 2 / particleCount) % (Math.PI * 2);
+            const radius = (this.canvas.width / 4) * (1 + this.features.bass * 0.5);
+            const x = centerX + Math.cos(angle) * radius;
+            const y = centerY + Math.sin(angle) * radius;
+            
+            const hue = (time * 50 + i * 2) % 360;
+            const alpha = 0.5 + this.features.energy * 0.5;
+            ctx.fillStyle = `hsla(${hue}, 100%, 60%, ${alpha})`;
+            ctx.beginPath();
+            ctx.arc(x, y, 2 + this.features.treble * 3, 0, Math.PI * 2);
+            ctx.fill();
+          }
+          ctx.globalCompositeOperation = 'source-over';
+        }
+        return;
+      }
     }
 
     const gl = this.gl;
     const width = this.canvas.width;
     const height = this.canvas.height;
 
+    // Set viewport
+    gl.viewport(0, 0, width, height);
+
     gl.clearColor(0.02, 0.024, 0.04, 0.1);
     gl.clear(gl.COLOR_BUFFER_BIT);
     gl.useProgram(this.program);
+    
+    // Check for WebGL errors
+    const error = gl.getError();
+    if (error !== gl.NO_ERROR) {
+      console.warn('WebGL error before rendering particles:', error);
+    }
     gl.bindBuffer(gl.ARRAY_BUFFER, this.positionBuffer);
     gl.bufferData(gl.ARRAY_BUFFER, this.particles, gl.DYNAMIC_DRAW);
 
