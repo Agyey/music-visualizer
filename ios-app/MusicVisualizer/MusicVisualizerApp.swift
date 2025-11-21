@@ -2,8 +2,6 @@
 //  MusicVisualizerApp.swift
 //  MusicVisualizer
 //
-//  Created by AI Assistant
-//
 
 import SwiftUI
 

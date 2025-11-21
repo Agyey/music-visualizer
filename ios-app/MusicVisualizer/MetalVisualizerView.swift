@@ -2,8 +2,6 @@
 //  MetalVisualizerView.swift
 //  MusicVisualizer
 //
-//  Created by AI Assistant
-//
 
 import SwiftUI
 import MetalKit

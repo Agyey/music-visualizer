@@ -2,8 +2,6 @@
 //  AudioManager.swift
 //  MusicVisualizer
 //
-//  Created by AI Assistant
-//
 
 import AVFoundation
 import Accelerate

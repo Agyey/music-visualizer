@@ -2,8 +2,6 @@
 //  ContentView.swift
 //  MusicVisualizer
 //
-//  Created by AI Assistant
-//
 
 import SwiftUI
 import AVFoundation

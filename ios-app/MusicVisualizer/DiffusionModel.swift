@@ -2,8 +2,6 @@
 //  DiffusionModel.swift
 //  MusicVisualizer
 //
-//  Created by AI Assistant
-//
 
 import CoreML
 import Foundation

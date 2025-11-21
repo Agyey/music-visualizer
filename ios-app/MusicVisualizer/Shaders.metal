@@ -2,8 +2,6 @@
 //  Shaders.metal
 //  MusicVisualizer
 //
-//  Created by AI Assistant
-//
 
 #include <metal_stdlib>
 using namespace metal;
