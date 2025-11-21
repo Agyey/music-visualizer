@@ -185,19 +185,57 @@ export class VisualizerEngine {
   }
 
   private renderMode(mode: VisualizerMode, time: number) {
-    switch (mode) {
-      case "geometric":
-        this.geometricRenderer.render(time);
-        break;
-      case "psychedelic":
-        this.shaderRenderer.render(time);
-        break;
-      case "particles":
-        this.particleRenderer.render(time);
-        break;
-      case "threeD":
-        this.threeDRenderer.render(time);
-        break;
+    try {
+      switch (mode) {
+        case "geometric":
+          this.geometricRenderer.render(time);
+          break;
+        case "psychedelic":
+          // Ensure canvas is ready for WebGL
+          if (this.canvas.width === 0 || this.canvas.height === 0) {
+            const rect = this.canvas.getBoundingClientRect();
+            if (rect.width > 0 && rect.height > 0) {
+              this.canvas.width = rect.width;
+              this.canvas.height = rect.height;
+            }
+          }
+          this.shaderRenderer.render(time);
+          break;
+        case "particles":
+          // Ensure canvas is ready
+          if (this.canvas.width === 0 || this.canvas.height === 0) {
+            const rect = this.canvas.getBoundingClientRect();
+            if (rect.width > 0 && rect.height > 0) {
+              this.canvas.width = rect.width;
+              this.canvas.height = rect.height;
+            }
+          }
+          this.particleRenderer.render(time);
+          break;
+        case "threeD":
+          // Ensure canvas is ready for Three.js
+          if (this.canvas.width === 0 || this.canvas.height === 0) {
+            const rect = this.canvas.getBoundingClientRect();
+            if (rect.width > 0 && rect.height > 0) {
+              this.canvas.width = rect.width;
+              this.canvas.height = rect.height;
+            }
+          }
+          this.threeDRenderer.render(time);
+          break;
+      }
+    } catch (error) {
+      console.error(`Error rendering ${mode} mode:`, error);
+      // Fallback: clear canvas and show error
+      const ctx = this.canvas.getContext('2d');
+      if (ctx) {
+        ctx.fillStyle = 'rgb(5, 6, 10)';
+        ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
+        ctx.fillStyle = '#fff';
+        ctx.font = '20px Arial';
+        ctx.textAlign = 'center';
+        ctx.fillText(`Error rendering ${mode} mode`, this.canvas.width / 2, this.canvas.height / 2);
+      }
     }
   }
 

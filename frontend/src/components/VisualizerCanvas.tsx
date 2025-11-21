@@ -122,7 +122,11 @@ export const VisualizerCanvas: React.FC<VisualizerCanvasProps> = ({
     engine.setMode(mode);
 
     const resizeCanvas = () => {
-      engine.resize(window.innerWidth, window.innerHeight);
+      // Use actual canvas dimensions, not window size
+      const rect = canvas.getBoundingClientRect();
+      const width = rect.width || window.innerWidth;
+      const height = rect.height || window.innerHeight;
+      engine.resize(width, height);
     };
 
     resizeCanvas();
