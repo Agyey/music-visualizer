@@ -120,8 +120,35 @@ export class PsychedelicRenderer {
     return start + (end - start) * factor;
   }
 
-  setShaderVariant(_variant: string | number) {
-    // Variant switching can be implemented if needed
+  private patternType: number = 0; // 0=auto, 1=mandelbrot, 2=julia, 3=burning_ship, 4=spiral, 5=lissajous, 6=rose
+  
+  setShaderVariant(variant: string | number) {
+    if (typeof variant === "number") {
+      // Direct number mapping: 0=fractal_zoom, 1=kaleidoscope, 2=vortex_tunnel, 3=plasma
+      const variantMap: Record<number, number> = {
+        0: 1, // fractal_zoom -> mandelbrot
+        1: 2, // kaleidoscope -> julia
+        2: 3, // vortex_tunnel -> burning_ship
+        3: 4, // plasma -> spiral
+      };
+      this.patternType = variantMap[variant] || 0;
+    } else {
+      // Map string names to pattern type numbers
+      const variantMap: Record<string, number> = {
+        "fractal_zoom": 1,    // mandelbrot
+        "kaleidoscope": 2,    // julia
+        "vortex_tunnel": 3,   // burning_ship
+        "plasma": 4,          // spiral
+        "mandelbrot": 1,
+        "julia": 2,
+        "burning_ship": 3,
+        "spiral": 4,
+        "lissajous": 5,
+        "rose": 6,
+        "auto": 0,
+      };
+      this.patternType = variantMap[variant.toLowerCase()] || 0;
+    }
   }
 
   setIntensity(_intensity: number) {
@@ -151,6 +178,7 @@ export class PsychedelicRenderer {
       uniform float u_sentiment;
       uniform int u_section_type;
       uniform float u_emotion_code;
+      uniform int u_pattern_type; // 0=auto, 1=mandelbrot, 2=julia, 3=burning_ship, 4=spiral, 5=lissajous, 6=rose
       
       // Simplex noise
       vec3 mod289(vec3 x) {
@@ -369,8 +397,15 @@ export class PsychedelicRenderer {
         float pulse = 1.0 + u_beat_pulse * 0.25;
         p *= pulse;
         
-        // Select fractal/pattern type based on audio features
-        float patternType = mod(u_time * 0.1 + u_energy * 2.0, 6.0);
+        // Select fractal/pattern type - use uniform if set, otherwise auto-cycle
+        float patternType;
+        if (u_pattern_type == 0) {
+          // Auto-cycle through patterns
+          patternType = mod(u_time * 0.1 + u_energy * 2.0, 6.0);
+        } else {
+          // Use selected pattern (1-6 map to 0-5)
+          patternType = float(u_pattern_type - 1);
+        }
         float fractalValue = 0.0;
         float patternValue = 0.0;
         
@@ -707,6 +742,7 @@ export class PsychedelicRenderer {
     const sentimentLocation = gl.getUniformLocation(this.program, 'u_sentiment');
     const sectionTypeLocation = gl.getUniformLocation(this.program, 'u_section_type');
     const emotionCodeLocation = gl.getUniformLocation(this.program, 'u_emotion_code');
+    const patternTypeLocation = gl.getUniformLocation(this.program, 'u_pattern_type');
 
     if (timeLocation) gl.uniform1f(timeLocation, shaderTime);
     if (qualityLocation) gl.uniform1f(qualityLocation, this.qualityLevelValue);
@@ -718,6 +754,11 @@ export class PsychedelicRenderer {
     if (beatPulseLocation) gl.uniform1f(beatPulseLocation, this.features.beatPulse);
     if (lyricIntensityLocation) gl.uniform1f(lyricIntensityLocation, this.features.lyricIntensity);
     if (sentimentLocation) gl.uniform1f(sentimentLocation, this.features.lyricSentiment);
+    
+    // Pattern type (controls which fractal/pattern to show)
+    if (patternTypeLocation) {
+      gl.uniform1i(patternTypeLocation, this.patternType);
+    }
     
     // Section type mapping
     const sectionMap: Record<string, number> = {
