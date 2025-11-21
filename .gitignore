@@ -46,13 +46,17 @@ yarn-error.log*
 # Docker
 *.log
 
-# Media files (large)
-media/audio/*
-media/video/*
-media/analysis/*
-media/stems/*
-media/processed/*
-!media/.gitkeep
+# Media files (large) - exclude all media content
+backend/media/audio/*
+backend/media/video/*
+backend/media/analysis/*
+backend/media/stems/*
+backend/media/processed/*
+!backend/media/audio/.gitkeep
+!backend/media/video/.gitkeep
+!backend/media/analysis/.gitkeep
+!backend/media/stems/.gitkeep
+!backend/media/processed/.gitkeep
 
 # Build outputs
 frontend/dist/
