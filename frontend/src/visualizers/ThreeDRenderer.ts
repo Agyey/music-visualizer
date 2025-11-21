@@ -58,9 +58,12 @@ export class ThreeDRenderer {
     
     // Ensure canvas has valid dimensions
     if (this.canvas.width === 0 || this.canvas.height === 0) {
-      this.canvas.width = window.innerWidth;
-      this.canvas.height = window.innerHeight;
+      const rect = this.canvas.getBoundingClientRect();
+      this.canvas.width = rect.width || window.innerWidth;
+      this.canvas.height = rect.height || window.innerHeight;
     }
+    
+    console.log('Initializing Three.js renderer with canvas size:', this.canvas.width, 'x', this.canvas.height);
     
     // Scene setup
     this.scene = new THREE.Scene();
@@ -84,24 +87,26 @@ export class ThreeDRenderer {
       this.renderer = new THREE.WebGLRenderer({ 
         canvas: this.canvas, 
         antialias: true,
-        preserveDrawingBuffer: false
+        preserveDrawingBuffer: false,
+        alpha: false
       });
       this.renderer.setSize(this.canvas.width, this.canvas.height);
-      this.renderer.setPixelRatio(window.devicePixelRatio);
+      this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2)); // Limit pixel ratio for performance
+      console.log('Three.js renderer created successfully');
     } catch (e) {
-      console.warn('Three.js WebGL renderer could not be created:', e);
+      console.error('Three.js WebGL renderer could not be created:', e);
       return;
     }
     
     // Lighting
-    const ambientLight = new THREE.AmbientLight(0xffffff, 0.5);
+    const ambientLight = new THREE.AmbientLight(0xffffff, 0.6);
     this.scene.add(ambientLight);
     
-    const pointLight1 = new THREE.PointLight(0xff6b6b, 1, 100);
+    const pointLight1 = new THREE.PointLight(0xff6b6b, 1.5, 100);
     pointLight1.position.set(5, 5, 5);
     this.scene.add(pointLight1);
     
-    const pointLight2 = new THREE.PointLight(0x4ecdc4, 1, 100);
+    const pointLight2 = new THREE.PointLight(0x4ecdc4, 1.5, 100);
     pointLight2.position.set(-5, -5, 5);
     this.scene.add(pointLight2);
     
@@ -115,6 +120,7 @@ export class ThreeDRenderer {
     this.generateCameraPath();
     
     this.rendererInitialized = true;
+    console.log('Three.js renderer initialized successfully');
   }
 
   private createMainObject() {
@@ -252,8 +258,10 @@ export class ThreeDRenderer {
 
   setFOV(fov: number) {
     this.config.fov = fov;
-    this.camera.fov = fov;
-    this.camera.updateProjectionMatrix();
+    if (this.rendererInitialized && this.camera) {
+      this.camera.fov = fov;
+      this.camera.updateProjectionMatrix();
+    }
   }
 
   resize(width: number, height: number) {
@@ -262,9 +270,13 @@ export class ThreeDRenderer {
     
     // Only resize if Three.js is initialized
     if (this.rendererInitialized && this.camera && this.renderer) {
-      this.camera.aspect = width / height;
+      const aspect = width > 0 && height > 0 ? width / height : 1;
+      this.camera.aspect = aspect;
       this.camera.updateProjectionMatrix();
       this.renderer.setSize(width, height);
+    } else if (!this.rendererInitialized && width > 0 && height > 0) {
+      // If not initialized yet but we have dimensions, try to initialize
+      // This will be called on first render anyway, but this ensures dimensions are set
     }
   }
 
@@ -272,12 +284,17 @@ export class ThreeDRenderer {
     // Lazy initialization of Three.js
     if (!this.rendererInitialized) {
       this.initThreeJS();
-      if (!this.rendererInitialized || !this.renderer || !this.camera) {
+      if (!this.rendererInitialized || !this.renderer || !this.camera || !this.scene) {
+        console.warn('Three.js initialization failed, using fallback');
         // Fallback rendering
         const ctx = this.canvas.getContext('2d');
         if (ctx) {
           ctx.fillStyle = 'rgb(5, 6, 10)';
           ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
+          ctx.fillStyle = 'rgba(0, 170, 255, 0.5)';
+          ctx.font = '24px Arial';
+          ctx.textAlign = 'center';
+          ctx.fillText('3D Mode: Initializing...', this.canvas.width / 2, this.canvas.height / 2);
         }
         return;
       }
@@ -292,9 +309,13 @@ export class ThreeDRenderer {
     
     // Safety check before rendering
     if (!this.renderer || !this.camera || !this.scene) {
+      console.warn('Three.js renderer not fully initialized');
       return;
     }
-    if (!this.mainObject) return;
+    if (!this.mainObject) {
+      console.warn('Main object not created');
+      return;
+    }
     
     // Update main object
     const bass = this.features.bass;
@@ -312,19 +333,11 @@ export class ThreeDRenderer {
     this.mainObject.rotation.y += mid * 0.03;
     this.mainObject.rotation.z += treble * 0.01;
     
-    // Displacement/noise on vertices based on treble
-    if (this.mainObject.geometry instanceof THREE.BufferGeometry) {
-      const positions = this.mainObject.geometry.attributes.position;
-      if (positions) {
-        for (let i = 0; i < positions.count; i++) {
-          const x = positions.getX(i);
-          const y = positions.getY(i);
-          const z = positions.getZ(i);
-          const noise = treble * 0.1 * Math.sin(time * 2 + i * 0.1);
-          positions.setXYZ(i, x + noise, y + noise, z + noise);
-        }
-        positions.needsUpdate = true;
-      }
+    // Displacement/noise on vertices based on treble (simplified to avoid performance issues)
+    // Instead of modifying geometry, we'll use scale variation
+    if (treble > 0.3) {
+      const noiseScale = 1.0 + treble * 0.1 * Math.sin(time * 3);
+      this.mainObject.scale.multiplyScalar(noiseScale / this.mainObject.scale.x);
     }
     
     // Update material color based on emotion and sentiment
@@ -348,22 +361,29 @@ export class ThreeDRenderer {
       this.mainObject.material.emissiveIntensity = 0.3 + this.features.lyricIntensity * 0.5;
     }
     
-    // Update FOV based on bass
-    this.camera.fov = this.config.fov + bass * 10;
+    // Update FOV based on bass (with limits)
+    const targetFOV = this.config.fov + bass * 10;
+    this.camera.fov = Math.max(50, Math.min(100, targetFOV));
     this.camera.updateProjectionMatrix();
     
-    // Camera movement
-    this.cameraPathIndex = (this.cameraPathIndex + this.config.cameraSpeed) % this.cameraPath.length;
-    const currentPos = this.cameraPath[Math.floor(this.cameraPathIndex)];
-    const nextPos = this.cameraPath[Math.floor((this.cameraPathIndex + 1) % this.cameraPath.length)];
-    const alpha = this.cameraPathIndex % 1;
-    
-    this.camera.position.lerpVectors(currentPos, nextPos, alpha);
-    this.camera.lookAt(0, 0, 0);
-    
-    // Beat pulse camera kick
-    if (beatPulse > 0.3) {
-      this.camera.position.addScaledVector(this.camera.position.clone().normalize(), beatPulse * 0.5);
+    // Camera movement along path
+    if (this.cameraPath.length > 0) {
+      this.cameraPathIndex = (this.cameraPathIndex + this.config.cameraSpeed * 0.01) % this.cameraPath.length;
+      const currentIdx = Math.floor(this.cameraPathIndex) % this.cameraPath.length;
+      const nextIdx = (currentIdx + 1) % this.cameraPath.length;
+      const alpha = this.cameraPathIndex % 1;
+      
+      const currentPos = this.cameraPath[currentIdx];
+      const nextPos = this.cameraPath[nextIdx];
+      
+      this.camera.position.lerpVectors(currentPos, nextPos, alpha);
+      this.camera.lookAt(0, 0, 0);
+      
+      // Beat pulse camera kick
+      if (beatPulse > 0.3) {
+        const direction = this.camera.position.clone().normalize();
+        this.camera.position.addScaledVector(direction, beatPulse * 0.3);
+      }
     }
     
     // Update orbit objects
@@ -394,7 +414,7 @@ export class ThreeDRenderer {
   }) {
     if (config.shape_family) {
       this.config.shapeFamily = config.shape_family as any;
-      if (this.mainObject) {
+      if (this.rendererInitialized && this.mainObject) {
         const newGeometry = this.createGeometry(config.shape_family);
         this.mainObject.geometry.dispose();
         this.mainObject.geometry = newGeometry;
@@ -411,8 +431,10 @@ export class ThreeDRenderer {
     }
     if (config.field_of_view !== undefined) {
       this.config.fov = config.field_of_view;
-      this.camera.fov = config.field_of_view;
-      this.camera.updateProjectionMatrix();
+      if (this.rendererInitialized && this.camera) {
+        this.camera.fov = config.field_of_view;
+        this.camera.updateProjectionMatrix();
+      }
     }
   }
 }

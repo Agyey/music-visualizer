@@ -57,23 +57,34 @@ export class PsychedelicRenderer {
     
     // Try to get existing WebGL context or create new one
     const gl = this.canvas.getContext('webgl', {
-      alpha: true,
+      alpha: false,
       premultipliedAlpha: false,
-      preserveDrawingBuffer: false
+      preserveDrawingBuffer: false,
+      antialias: true
     }) || this.canvas.getContext('experimental-webgl', {
-      alpha: true,
+      alpha: false,
       premultipliedAlpha: false,
-      preserveDrawingBuffer: false
+      preserveDrawingBuffer: false,
+      antialias: true
     });
     
     if (!gl || !(gl instanceof WebGLRenderingContext)) {
-      console.warn('WebGL not supported, psychedelic mode will use fallback rendering');
+      console.error('WebGL not supported, psychedelic mode will use fallback rendering');
+      console.error('Canvas context:', this.canvas.getContext('2d') ? '2D available' : 'No context');
       return;
     }
     this.gl = gl;
     
+    // Enable depth testing and blending
+    gl.enable(gl.BLEND);
+    gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
+    
     // Create position buffer once
     this.positionBuffer = gl.createBuffer();
+    if (!this.positionBuffer) {
+      console.error('Failed to create position buffer');
+      return;
+    }
     gl.bindBuffer(gl.ARRAY_BUFFER, this.positionBuffer);
     gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([
       -1, -1,
@@ -82,7 +93,15 @@ export class PsychedelicRenderer {
        1,  1,
     ]), gl.STATIC_DRAW);
     
+    // Load default shader (fractal zoom)
     this.loadShader(0);
+    
+    // Verify shader loaded
+    if (!this.program) {
+      console.error('Failed to load default shader');
+    } else {
+      console.log('Psychedelic renderer initialized with WebGL');
+    }
   }
   
   private lerp(start: number, end: number, factor: number): number {
@@ -106,7 +125,10 @@ export class PsychedelicRenderer {
   }
 
   private loadShader(variant: number) {
-    if (!this.gl) return;
+    if (!this.gl) {
+      console.error('Cannot load shader: WebGL context not initialized');
+      return;
+    }
     
     // Check cache first
     if (this.shaderPrograms.has(variant)) {
@@ -118,6 +140,7 @@ export class PsychedelicRenderer {
     }
 
     let fragmentShaderSource: string;
+    const variantNames = ['fractal_zoom', 'kaleidoscope', 'vortex_tunnel', 'plasma'];
     switch (variant) {
       case 0:
         fragmentShaderSource = fractalComplexShader;
@@ -135,32 +158,51 @@ export class PsychedelicRenderer {
         fragmentShaderSource = fractalComplexShader;
     }
 
-    const vertexShader = this.createShader(this.gl.VERTEX_SHADER, `
+    const vertexShaderSource = `
       attribute vec2 a_position;
       void main() {
         gl_Position = vec4(a_position, 0.0, 1.0);
       }
-    `);
+    `;
 
+    const vertexShader = this.createShader(this.gl.VERTEX_SHADER, vertexShaderSource);
     const fragmentShader = this.createShader(this.gl.FRAGMENT_SHADER, fragmentShaderSource);
 
-    if (!vertexShader || !fragmentShader) return;
+    if (!vertexShader) {
+      console.error(`Failed to compile vertex shader for variant ${variant}`);
+      return;
+    }
+    if (!fragmentShader) {
+      console.error(`Failed to compile fragment shader for variant ${variant} (${variantNames[variant] || 'unknown'})`);
+      return;
+    }
 
     const program = this.gl.createProgram();
-    if (!program) return;
+    if (!program) {
+      console.error('Failed to create shader program');
+      return;
+    }
 
     this.gl.attachShader(program, vertexShader);
     this.gl.attachShader(program, fragmentShader);
     this.gl.linkProgram(program);
 
     if (!this.gl.getProgramParameter(program, this.gl.LINK_STATUS)) {
-      console.error('Shader program link error:', this.gl.getProgramInfoLog(program));
+      const error = this.gl.getProgramInfoLog(program);
+      console.error(`Shader program link error for variant ${variant}:`, error);
+      this.gl.deleteProgram(program);
       return;
     }
+
+    // Clean up shaders after linking
+    this.gl.deleteShader(vertexShader);
+    this.gl.deleteShader(fragmentShader);
 
     this.prevProgram = this.program;
     this.program = program;
     this.shaderPrograms.set(variant, program);
+    
+    console.log(`Loaded shader variant ${variant}: ${variantNames[variant] || 'unknown'}`);
     
     // Start transition
     this.transitionStartTime = performance.now();
@@ -218,7 +260,7 @@ export class PsychedelicRenderer {
     // Lazy initialization of WebGL
     if (!this.gl) {
       this.initWebGL();
-      if (!this.gl) {
+      if (!this.gl || !this.program) {
         // Fallback: draw a simple pattern if WebGL not available
         const ctx = this.canvas.getContext('2d');
         if (ctx) {
@@ -239,6 +281,7 @@ export class PsychedelicRenderer {
     }
     
     if (!this.program || !this.positionBuffer) {
+      console.warn('Psychedelic renderer: program or buffer not ready');
       return;
     }
 
