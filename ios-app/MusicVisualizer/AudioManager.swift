@@ -17,6 +17,7 @@ class AudioManager: ObservableObject {
     private var audioPlayer: AVAudioPlayerNode?
     private var audioFile: AVAudioFile?
     private var fftSetup: vDSP_DFT_Setup?
+    private var tempFileURL: URL?
     
     private var timer: Timer?
     
@@ -39,8 +40,31 @@ class AudioManager: ObservableObject {
         audioEngine = nil
         audioPlayer = nil
         
-        // Load new file
-        audioFile = try AVAudioFile(forReading: url)
+        // Clean up old temp file
+        if let oldTempURL = tempFileURL {
+            try? FileManager.default.removeItem(at: oldTempURL)
+            tempFileURL = nil
+        }
+        
+        // Copy file to temporary location for persistent access
+        let tempDir = FileManager.default.temporaryDirectory
+        let tempFileName = "\(UUID().uuidString)_\(url.lastPathComponent)"
+        let tempFile = tempDir.appendingPathComponent(tempFileName)
+        
+        // Access security-scoped resource to copy
+        guard url.startAccessingSecurityScopedResource() else {
+            throw NSError(domain: "AudioManager", code: 2, userInfo: [NSLocalizedDescriptionKey: "Failed to access security-scoped resource"])
+        }
+        defer { url.stopAccessingSecurityScopedResource() }
+        
+        // Copy file to temp location
+        try FileManager.default.copyItem(at: url, to: tempFile)
+        tempFileURL = tempFile
+        
+        print("📁 Copied audio file to temp location: \(tempFile.lastPathComponent)")
+        
+        // Load from temp location
+        audioFile = try AVAudioFile(forReading: tempFile)
         guard let file = audioFile else {
             throw NSError(domain: "AudioManager", code: 1, userInfo: [NSLocalizedDescriptionKey: "Failed to create audio file"])
         }
@@ -48,7 +72,7 @@ class AudioManager: ObservableObject {
         let sampleRate = file.fileFormat.sampleRate
         duration = Double(file.length) / sampleRate
         
-        print("📁 Loaded audio file: \(url.lastPathComponent)")
+        print("✅ Loaded audio file: \(url.lastPathComponent)")
         print("   Duration: \(duration)s, Sample Rate: \(sampleRate)Hz")
         
         setupAudioEngine()

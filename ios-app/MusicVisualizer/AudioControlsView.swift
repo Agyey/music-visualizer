@@ -89,14 +89,8 @@ struct AudioControlsView: View {
             switch result {
             case .success(let urls):
                 if let url = urls.first {
-                    // Access security-scoped resource
-                    guard url.startAccessingSecurityScopedResource() else {
-                        print("Failed to access security-scoped resource")
-                        return
-                    }
-                    defer { url.stopAccessingSecurityScopedResource() }
-                    
                     // Load audio file on main thread
+                    // The AudioManager will handle security-scoped resource access internally
                     DispatchQueue.main.async {
                         errorMessage = nil
                         do {
