@@ -119,8 +119,6 @@ class AudioManager: ObservableObject {
         // Calculate RMS for overall energy
         var rms: Float = 0.0
         vDSP_rmsqv(channelData[0], 1, &rms, vDSP_Length(frameLength))
-        audioFeatures.rms = rms
-        audioFeatures.energy = rms
         
         // FFT for frequency analysis
         let fftSize = 2048
@@ -153,41 +151,51 @@ class AudioManager: ObservableObject {
         let bassStart = Int(20.0 / binWidth)
         let bassEnd = min(Int(250.0 / binWidth), magnitudes.count)
         var bassSum: Float = 0.0
+        var bassValue: Float = 0.0
         if bassEnd > bassStart {
             magnitudes.withUnsafeBufferPointer { buffer in
                 vDSP_sve(buffer.baseAddress! + bassStart, 1, &bassSum, vDSP_Length(bassEnd - bassStart))
             }
-            audioFeatures.bass = sqrt(bassSum / Float(bassEnd - bassStart))
+            bassValue = sqrt(bassSum / Float(bassEnd - bassStart))
         }
         
         // Mid: 250-4000 Hz
         let midStart = Int(250.0 / binWidth)
         let midEnd = min(Int(4000.0 / binWidth), magnitudes.count)
         var midSum: Float = 0.0
+        var midValue: Float = 0.0
         if midEnd > midStart {
             magnitudes.withUnsafeBufferPointer { buffer in
                 vDSP_sve(buffer.baseAddress! + midStart, 1, &midSum, vDSP_Length(midEnd - midStart))
             }
-            audioFeatures.mid = sqrt(midSum / Float(midEnd - midStart))
+            midValue = sqrt(midSum / Float(midEnd - midStart))
         }
         
         // Treble: 4000-20000 Hz
         let trebleStart = Int(4000.0 / binWidth)
         let trebleEnd = min(Int(20000.0 / binWidth), magnitudes.count)
         var trebleSum: Float = 0.0
+        var trebleValue: Float = 0.0
         if trebleEnd > trebleStart {
             magnitudes.withUnsafeBufferPointer { buffer in
                 vDSP_sve(buffer.baseAddress! + trebleStart, 1, &trebleSum, vDSP_Length(trebleEnd - trebleStart))
             }
-            audioFeatures.treble = sqrt(trebleSum / Float(trebleEnd - trebleStart))
+            trebleValue = sqrt(trebleSum / Float(trebleEnd - trebleStart))
         }
         
         // Beat detection (simple peak detection)
         let peak = magnitudes.max() ?? 0.0
-        audioFeatures.beatPulse = min(peak * 10.0, 1.0)
+        let beatPulse = min(peak * 10.0, 1.0)
         
-        DispatchQueue.main.async {
-            self.objectWillChange.send()
+        // Update all @Published properties on main thread
+        DispatchQueue.main.async { [weak self] in
+            guard let self = self else { return }
+            self.audioFeatures.bass = bassValue
+            self.audioFeatures.mid = midValue
+            self.audioFeatures.treble = trebleValue
+            self.audioFeatures.energy = rms
+            self.audioFeatures.rms = rms
+            self.audioFeatures.beatPulse = beatPulse
         }
     }
     
