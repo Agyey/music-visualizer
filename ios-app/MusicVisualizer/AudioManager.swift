@@ -102,24 +102,34 @@ class AudioManager: ObservableObject {
         
         // Bass: 20-250 Hz
         let bassStart = Int(20.0 / binWidth)
-        let bassEnd = Int(250.0 / binWidth)
+        let bassEnd = min(Int(250.0 / binWidth), magnitudes.count)
         var bassSum: Float = 0.0
-        vDSP_sve(magnitudes[bassStart..<bassEnd], 1, &bassSum, vDSP_Length(bassEnd - bassStart))
-        audioFeatures.bass = sqrt(bassSum / Float(bassEnd - bassStart))
+        if bassEnd > bassStart {
+            magnitudes.withUnsafeBufferPointer { buffer in
+                vDSP_sve(buffer.baseAddress! + bassStart, 1, &bassSum, vDSP_Length(bassEnd - bassStart))
+            }
+            audioFeatures.bass = sqrt(bassSum / Float(bassEnd - bassStart))
+        }
         
         // Mid: 250-4000 Hz
         let midStart = Int(250.0 / binWidth)
-        let midEnd = Int(4000.0 / binWidth)
+        let midEnd = min(Int(4000.0 / binWidth), magnitudes.count)
         var midSum: Float = 0.0
-        vDSP_sve(magnitudes[midStart..<midEnd], 1, &midSum, vDSP_Length(midEnd - midStart))
-        audioFeatures.mid = sqrt(midSum / Float(midEnd - midStart))
+        if midEnd > midStart {
+            magnitudes.withUnsafeBufferPointer { buffer in
+                vDSP_sve(buffer.baseAddress! + midStart, 1, &midSum, vDSP_Length(midEnd - midStart))
+            }
+            audioFeatures.mid = sqrt(midSum / Float(midEnd - midStart))
+        }
         
         // Treble: 4000-20000 Hz
         let trebleStart = Int(4000.0 / binWidth)
         let trebleEnd = min(Int(20000.0 / binWidth), magnitudes.count)
         var trebleSum: Float = 0.0
         if trebleEnd > trebleStart {
-            vDSP_sve(magnitudes[trebleStart..<trebleEnd], 1, &trebleSum, vDSP_Length(trebleEnd - trebleStart))
+            magnitudes.withUnsafeBufferPointer { buffer in
+                vDSP_sve(buffer.baseAddress! + trebleStart, 1, &trebleSum, vDSP_Length(trebleEnd - trebleStart))
+            }
             audioFeatures.treble = sqrt(trebleSum / Float(trebleEnd - trebleStart))
         }
         
