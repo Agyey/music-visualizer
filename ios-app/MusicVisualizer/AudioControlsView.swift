@@ -5,6 +5,7 @@
 
 import SwiftUI
 import PhotosUI
+import UniformTypeIdentifiers
 
 struct AudioControlsView: View {
     @ObservedObject var audioManager: AudioManager
@@ -76,7 +77,13 @@ struct AudioControlsView: View {
         }
         .fileImporter(
             isPresented: $showingFilePicker,
-            allowedContentTypes: [.audio, .mp3, .m4a, .wav, .aiff],
+            allowedContentTypes: [
+                .audio,
+                .mp3,
+                UTType(filenameExtension: "m4a") ?? .audio,
+                UTType(filenameExtension: "wav") ?? .audio,
+                UTType(filenameExtension: "aiff") ?? .audio
+            ],
             allowsMultipleSelection: false
         ) { result in
             switch result {
