@@ -30,19 +30,43 @@ class AudioManager: ObservableObject {
     }
     
     func loadAudioFile(url: URL) throws {
+        // Stop any current playback
+        stop()
+        
+        // Clean up existing engine
+        audioEngine?.stop()
+        audioEngine?.mainMixerNode.removeTap(onBus: 0)
+        audioEngine = nil
+        audioPlayer = nil
+        
+        // Load new file
         audioFile = try AVAudioFile(forReading: url)
-        duration = Double(audioFile?.length ?? 0) / (audioFile?.fileFormat.sampleRate ?? 44100)
+        guard let file = audioFile else {
+            throw NSError(domain: "AudioManager", code: 1, userInfo: [NSLocalizedDescriptionKey: "Failed to create audio file"])
+        }
+        
+        let sampleRate = file.fileFormat.sampleRate
+        duration = Double(file.length) / sampleRate
+        
+        print("📁 Loaded audio file: \(url.lastPathComponent)")
+        print("   Duration: \(duration)s, Sample Rate: \(sampleRate)Hz")
         
         setupAudioEngine()
     }
     
     private func setupAudioEngine() {
-        guard let audioFile = audioFile else { return }
+        guard let audioFile = audioFile else {
+            print("⚠️ No audio file to set up")
+            return
+        }
         
         audioEngine = AVAudioEngine()
         audioPlayer = AVAudioPlayerNode()
         
-        guard let engine = audioEngine, let player = audioPlayer else { return }
+        guard let engine = audioEngine, let player = audioPlayer else {
+            print("⚠️ Failed to create audio engine or player")
+            return
+        }
         
         engine.attach(player)
         
@@ -57,8 +81,9 @@ class AudioManager: ObservableObject {
         
         do {
             try engine.start()
+            print("✅ Audio engine started successfully")
         } catch {
-            print("Failed to start audio engine: \(error)")
+            print("❌ Failed to start audio engine: \(error.localizedDescription)")
         }
     }
     

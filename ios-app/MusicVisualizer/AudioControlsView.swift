@@ -9,6 +9,7 @@ import PhotosUI
 struct AudioControlsView: View {
     @ObservedObject var audioManager: AudioManager
     @State private var showingFilePicker = false
+    @State private var errorMessage: String?
     
     var body: some View {
         VStack(spacing: 12) {
@@ -64,23 +65,45 @@ struct AudioControlsView: View {
                 FeatureBar(value: audioManager.audioFeatures.energy, color: .yellow)
             }
             .frame(height: 4)
+            
+            // Error message
+            if let errorMessage = errorMessage {
+                Text(errorMessage)
+                    .font(.caption)
+                    .foregroundColor(.red)
+                    .padding(.top, 4)
+            }
         }
         .fileImporter(
             isPresented: $showingFilePicker,
-            allowedContentTypes: [.audio],
+            allowedContentTypes: [.audio, .mp3, .m4a, .wav, .aiff],
             allowsMultipleSelection: false
         ) { result in
             switch result {
             case .success(let urls):
                 if let url = urls.first {
-                    do {
-                        try audioManager.loadAudioFile(url: url)
-                    } catch {
-                        print("Failed to load audio: \(error)")
+                    // Access security-scoped resource
+                    guard url.startAccessingSecurityScopedResource() else {
+                        print("Failed to access security-scoped resource")
+                        return
+                    }
+                    defer { url.stopAccessingSecurityScopedResource() }
+                    
+                    // Load audio file on main thread
+                    DispatchQueue.main.async {
+                        errorMessage = nil
+                        do {
+                            try audioManager.loadAudioFile(url: url)
+                            print("✅ Audio file loaded successfully: \(url.lastPathComponent)")
+                        } catch {
+                            let errorMsg = "Failed to load: \(error.localizedDescription)"
+                            errorMessage = errorMsg
+                            print("❌ \(errorMsg)")
+                        }
                     }
                 }
             case .failure(let error):
-                print("File picker error: \(error)")
+                print("❌ File picker error: \(error.localizedDescription)")
             }
         }
     }
