@@ -82,16 +82,24 @@ export class ThreeDRenderer {
     );
     this.camera.position.set(0, 0, 8);
     
-    // Renderer - try to reuse existing context or create new one
+    // Renderer - create with explicit context options
     try {
       this.renderer = new THREE.WebGLRenderer({ 
         canvas: this.canvas, 
         antialias: true,
         preserveDrawingBuffer: false,
-        alpha: false
+        alpha: false,
+        powerPreference: "high-performance"
       });
+      
+      if (!this.renderer) {
+        console.error('Three.js renderer creation returned null');
+        return;
+      }
+      
       this.renderer.setSize(this.canvas.width, this.canvas.height);
-      this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2)); // Limit pixel ratio for performance
+      this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+      this.renderer.setClearColor(0x05060a, 1);
       console.log('Three.js renderer created successfully');
     } catch (e) {
       console.error('Three.js WebGL renderer could not be created:', e);
@@ -124,6 +132,17 @@ export class ThreeDRenderer {
   }
 
   private createMainObject() {
+    if (!this.scene) return;
+    
+    // Remove existing object if any
+    if (this.mainObject) {
+      this.scene.remove(this.mainObject);
+      this.mainObject.geometry.dispose();
+      if (this.mainObject.material instanceof THREE.Material) {
+        this.mainObject.material.dispose();
+      }
+    }
+    
     // Create geometry based on current shape
     const geometry = this.createGeometry(this.config.shapeFamily);
     
@@ -131,13 +150,14 @@ export class ThreeDRenderer {
     const material = new THREE.MeshStandardMaterial({
       color: 0xff6b6b,
       emissive: 0x331122,
-      emissiveIntensity: 0.3,
-      metalness: 0.7,
-      roughness: 0.3,
+      emissiveIntensity: 0.4,
+      metalness: 0.8,
+      roughness: 0.2,
     });
     
     this.mainObject = new THREE.Mesh(geometry, material);
     this.scene.add(this.mainObject);
+    console.log('Main 3D object created:', this.config.shapeFamily);
   }
 
   private createGeometry(shapeType: string): THREE.BufferGeometry {
@@ -309,12 +329,14 @@ export class ThreeDRenderer {
     
     // Safety check before rendering
     if (!this.renderer || !this.camera || !this.scene) {
-      console.warn('Three.js renderer not fully initialized');
       return;
     }
     if (!this.mainObject) {
-      console.warn('Main object not created');
-      return;
+      // Try to create main object if it doesn't exist
+      this.createMainObject();
+      if (!this.mainObject) {
+        return;
+      }
     }
     
     // Update main object

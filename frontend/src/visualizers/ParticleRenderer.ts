@@ -177,10 +177,23 @@ export class ParticleRenderer {
     const width = this.canvas.width;
     const height = this.canvas.height;
     
-    // Clear with fade for trails - adjust fade based on mode
-    const fadeAlpha = this.particleMode === 3 ? 0.05 : 0.08; // Liquid mode needs more persistence
+    // Clear with fade for trails - adjust fade based on mode for better persistence
+    const fadeAlpha = this.particleMode === 3 ? 0.03 : 0.06; // Liquid mode needs more persistence
     this.ctx.fillStyle = `rgba(5, 6, 10, ${fadeAlpha})`;
     this.ctx.fillRect(0, 0, width, height);
+    
+    // Add subtle background glow
+    if (this.features.energy > 0.3) {
+      const gradient = this.ctx.createRadialGradient(
+        width / 2, height / 2, 0,
+        width / 2, height / 2, Math.min(width, height) * 0.8
+      );
+      const glowHue = (30 + this.features.lyricSentiment * 60) % 360;
+      gradient.addColorStop(0, `hsla(${glowHue}, 70%, 50%, ${this.features.energy * 0.05})`);
+      gradient.addColorStop(1, 'hsla(0, 0%, 0%, 0)');
+      this.ctx.fillStyle = gradient;
+      this.ctx.fillRect(0, 0, width, height);
+    }
 
     // Update and render particles
     for (let i = this.particles.length - 1; i >= 0; i--) {
@@ -328,73 +341,106 @@ export class ParticleRenderer {
     const alpha = p.life;
     
     // Rich, vibrant color palette based on multiple factors
-    // Base hue from sentiment, modulated by energy and position
-    const baseHue = (30 + this.features.lyricSentiment * 60 + p.x * 0.1) % 360;
-    const energyHue = (this.features.energy * 60 + p.y * 0.1) % 360;
-    const beatHue = (this.features.beatPulse * 120) % 360;
+    const baseHue = (30 + this.features.lyricSentiment * 60 + p.x * 0.05 + this.currentTime * 10) % 360;
+    const energyHue = (this.features.energy * 80 + p.y * 0.05) % 360;
+    const beatHue = (this.features.beatPulse * 150 + this.currentTime * 20) % 360;
     
     // Blend multiple hues for rich color variation
-    const hue = (baseHue * 0.4 + energyHue * 0.3 + beatHue * 0.3) % 360;
+    const hue = (baseHue * 0.35 + energyHue * 0.35 + beatHue * 0.3) % 360;
     
     // High saturation for vibrant colors
-    const saturation = 75 + this.features.lyricEnergy * 25 + this.features.energy * 20;
+    const saturation = 80 + this.features.lyricEnergy * 20 + this.features.energy * 15;
     
     // Bright, glowing lightness
-    const lightness = 55 + this.features.energy * 35 + this.features.beatPulse * 20;
+    const lightness = 60 + this.features.energy * 30 + this.features.beatPulse * 25;
     
-    // Render trail with vibrant gradient colors
+    // Enhanced trail rendering with smooth gradients
     for (let i = 0; i < p.trail.length; i++) {
       const t = p.trail[i];
+      if (i > 0) {
+        const prev = p.trail[i - 1];
+        const trailProgress = i / p.trail.length;
+        const trailAlpha = alpha * t.life * 0.6;
+        
+        // Color shifts along trail for rainbow effect
+        const trailHue = (hue + trailProgress * 40) % 360;
+        const trailSaturation = Math.min(100, saturation * (0.85 + trailProgress * 0.15));
+        const trailLightness = lightness * (0.75 + trailProgress * 0.25);
+        
+        // Draw trail as line with gradient
+        const gradient = this.ctx.createLinearGradient(prev.x, prev.y, t.x, t.y);
+        gradient.addColorStop(0, `hsla(${trailHue}, ${trailSaturation}%, ${trailLightness}%, ${trailAlpha * 0.8})`);
+        gradient.addColorStop(1, `hsla(${trailHue}, ${trailSaturation}%, ${trailLightness}%, ${trailAlpha})`);
+        
+        this.ctx.strokeStyle = gradient;
+        this.ctx.lineWidth = p.size * 0.8 * trailProgress;
+        this.ctx.lineCap = 'round';
+        this.ctx.beginPath();
+        this.ctx.moveTo(prev.x, prev.y);
+        this.ctx.lineTo(t.x, t.y);
+        this.ctx.stroke();
+      }
+      
+      // Trail particles
       const trailProgress = i / p.trail.length;
-      const trailAlpha = alpha * t.life * 0.5 * trailProgress;
-      
-      // Color shifts along trail for rainbow effect
+      const trailAlpha = alpha * t.life * 0.4 * trailProgress;
       const trailHue = (hue + trailProgress * 30) % 360;
-      const trailSaturation = saturation * (0.8 + trailProgress * 0.2);
-      const trailLightness = lightness * (0.7 + trailProgress * 0.3);
       
-      this.ctx.fillStyle = `hsla(${trailHue}, ${trailSaturation}%, ${trailLightness}%, ${trailAlpha})`;
+      this.ctx.fillStyle = `hsla(${trailHue}, ${saturation}%, ${lightness}%, ${trailAlpha})`;
+      this.ctx.shadowBlur = 8 * trailProgress;
+      this.ctx.shadowColor = `hsla(${trailHue}, ${saturation}%, ${lightness}%, ${trailAlpha})`;
       this.ctx.beginPath();
-      this.ctx.arc(t.x, t.y, p.size * 0.6 * trailProgress, 0, Math.PI * 2);
+      this.ctx.arc(t.x, t.y, p.size * 0.5 * trailProgress, 0, Math.PI * 2);
       this.ctx.fill();
     }
     
-    // Multi-color radial gradient for rich glow
-    const gradient = this.ctx.createRadialGradient(p.x, p.y, 0, p.x, p.y, p.size * 3);
+    // Multi-color radial gradient for rich glow with multiple stops
+    const glowSize = p.size * (3 + this.features.energy * 2);
+    const gradient = this.ctx.createRadialGradient(p.x, p.y, 0, p.x, p.y, glowSize);
     
-    // Center: bright, saturated
+    // Center: bright, saturated white-hot core
     const centerHue = hue;
-    gradient.addColorStop(0, `hsla(${centerHue}, ${saturation}%, ${lightness + 20}%, ${alpha})`);
+    gradient.addColorStop(0, `hsla(${centerHue}, ${saturation}%, ${Math.min(100, lightness + 30)}%, ${alpha})`);
+    gradient.addColorStop(0.2, `hsla(${centerHue}, ${saturation}%, ${lightness + 20}%, ${alpha * 0.9})`);
     
     // Mid: slightly shifted hue
-    const midHue = (hue + 20) % 360;
-    gradient.addColorStop(0.4, `hsla(${midHue}, ${saturation * 0.9}%, ${lightness}%, ${alpha * 0.7})`);
+    const midHue = (hue + 25) % 360;
+    gradient.addColorStop(0.5, `hsla(${midHue}, ${saturation * 0.95}%, ${lightness}%, ${alpha * 0.7})`);
     
     // Outer: complementary hue
-    const outerHue = (hue + 60) % 360;
-    gradient.addColorStop(0.7, `hsla(${outerHue}, ${saturation * 0.7}%, ${lightness * 0.8}%, ${alpha * 0.4})`);
+    const outerHue = (hue + 70) % 360;
+    gradient.addColorStop(0.8, `hsla(${outerHue}, ${saturation * 0.75}%, ${lightness * 0.85}%, ${alpha * 0.3})`);
     gradient.addColorStop(1, `hsla(${outerHue}, ${saturation * 0.5}%, ${lightness * 0.6}%, 0)`);
     
     this.ctx.fillStyle = gradient;
     this.ctx.beginPath();
-    this.ctx.arc(p.x, p.y, p.size * 3, 0, Math.PI * 2);
+    this.ctx.arc(p.x, p.y, glowSize, 0, Math.PI * 2);
     this.ctx.fill();
     
-    // Core particle - bright and vibrant
-    const coreHue = (hue + 10) % 360;
-    this.ctx.fillStyle = `hsla(${coreHue}, ${Math.min(100, saturation + 10)}%, ${Math.min(100, lightness + 25)}%, ${alpha})`;
-    this.ctx.shadowBlur = 12;
-    this.ctx.shadowColor = `hsla(${coreHue}, ${saturation}%, ${lightness}%, ${alpha * 0.8})`;
+    // Core particle - bright and vibrant with shadow
+    const coreHue = (hue + 5) % 360;
+    this.ctx.fillStyle = `hsla(${coreHue}, ${Math.min(100, saturation + 15)}%, ${Math.min(100, lightness + 30)}%, ${alpha})`;
+    this.ctx.shadowBlur = 20 + this.features.energy * 15;
+    this.ctx.shadowColor = `hsla(${coreHue}, ${saturation}%, ${lightness}%, ${alpha * 0.9})`;
     this.ctx.beginPath();
-    this.ctx.arc(p.x, p.y, p.size, 0, Math.PI * 2);
+    this.ctx.arc(p.x, p.y, p.size * 1.2, 0, Math.PI * 2);
+    this.ctx.fill();
+    
+    // Inner bright core
+    this.ctx.fillStyle = `hsla(${coreHue}, ${Math.min(100, saturation + 20)}%, ${Math.min(100, lightness + 40)}%, ${alpha})`;
+    this.ctx.beginPath();
+    this.ctx.arc(p.x, p.y, p.size * 0.6, 0, Math.PI * 2);
     this.ctx.fill();
     
     // Add sparkle for high energy
-    if (this.features.energy > 0.7 || this.features.treble > 0.6) {
+    if (this.features.energy > 0.6 || this.features.treble > 0.5) {
       const sparkleHue = (hue + 180) % 360; // Complementary
-      this.ctx.fillStyle = `hsla(${sparkleHue}, 100%, 90%, ${alpha * 0.6})`;
+      const sparkleSize = p.size * (0.4 + this.features.energy * 0.3);
+      this.ctx.fillStyle = `hsla(${sparkleHue}, 100%, 95%, ${alpha * 0.8})`;
+      this.ctx.shadowBlur = 15;
+      this.ctx.shadowColor = `hsla(${sparkleHue}, 100%, 90%, ${alpha})`;
       this.ctx.beginPath();
-      this.ctx.arc(p.x, p.y, p.size * 0.3, 0, Math.PI * 2);
+      this.ctx.arc(p.x, p.y, sparkleSize, 0, Math.PI * 2);
       this.ctx.fill();
     }
     

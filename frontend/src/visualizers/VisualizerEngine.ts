@@ -92,29 +92,48 @@ export class VisualizerEngine {
       );
     }
 
-    const ctx = this.canvas.getContext('2d');
-    if (!ctx) return;
-
-    // Clear canvas
-    ctx.fillStyle = 'rgb(5, 6, 10)';
-    ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
+    // For WebGL modes (psychedelic, 3D), don't clear with 2D context
+    // They handle their own clearing
+    const isWebGLMode = this.mode === 'psychedelic' || this.mode === 'threeD';
+    const isTransitioningToWebGL = this.transitionTarget === 'psychedelic' || this.transitionTarget === 'threeD';
+    
+    if (!isWebGLMode && !isTransitioningToWebGL) {
+      // Only clear with 2D context for non-WebGL modes
+      const ctx = this.canvas.getContext('2d');
+      if (ctx) {
+        ctx.fillStyle = 'rgb(5, 6, 10)';
+        ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
+      }
+    }
 
     // Render based on mode and transition
     if (this.transitionTarget && this.transitionProgress < 1.0) {
-      // Crossfade between modes
-      const oldOpacity = 1.0 - this.transitionProgress;
-      const newOpacity = this.transitionProgress;
+      // For WebGL modes, just switch directly (WebGL doesn't support opacity blending easily)
+      if (isWebGLMode || isTransitioningToWebGL) {
+        // Render new mode if transition is mostly complete
+        if (this.transitionProgress > 0.5) {
+          this.renderMode(this.transitionTarget, time);
+        } else {
+          this.renderMode(this.mode, time);
+        }
+      } else {
+        // Crossfade for 2D modes
+        const ctx = this.canvas.getContext('2d');
+        if (ctx) {
+          const oldOpacity = 1.0 - this.transitionProgress;
+          const newOpacity = this.transitionProgress;
 
-      // Save context for opacity
-      ctx.save();
-      ctx.globalAlpha = oldOpacity;
-      this.renderMode(this.mode, time);
-      ctx.restore();
+          ctx.save();
+          ctx.globalAlpha = oldOpacity;
+          this.renderMode(this.mode, time);
+          ctx.restore();
 
-      ctx.save();
-      ctx.globalAlpha = newOpacity;
-      this.renderMode(this.transitionTarget, time);
-      ctx.restore();
+          ctx.save();
+          ctx.globalAlpha = newOpacity;
+          this.renderMode(this.transitionTarget, time);
+          ctx.restore();
+        }
+      }
     } else {
       this.renderMode(this.mode, time);
     }

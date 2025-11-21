@@ -55,27 +55,52 @@ export class PsychedelicRenderer {
   private initWebGL() {
     if (this.gl) return; // Already initialized
     
-    // Try to get existing WebGL context or create new one
-    const gl = this.canvas.getContext('webgl', {
-      alpha: false,
-      premultipliedAlpha: false,
-      preserveDrawingBuffer: false,
-      antialias: true
-    }) || this.canvas.getContext('experimental-webgl', {
-      alpha: false,
-      premultipliedAlpha: false,
-      preserveDrawingBuffer: false,
-      antialias: true
-    });
+    // Ensure canvas has dimensions
+    if (this.canvas.width === 0 || this.canvas.height === 0) {
+      const rect = this.canvas.getBoundingClientRect();
+      this.canvas.width = rect.width || window.innerWidth;
+      this.canvas.height = rect.height || window.innerHeight;
+    }
+    
+    // Try to get WebGL context - use force context loss if needed
+    let gl: WebGLRenderingContext | null = null;
+    
+    // First try standard WebGL
+    try {
+      gl = this.canvas.getContext('webgl', {
+        alpha: false,
+        premultipliedAlpha: false,
+        preserveDrawingBuffer: false,
+        antialias: true,
+        depth: false,
+        stencil: false
+      }) as WebGLRenderingContext | null;
+    } catch (e) {
+      console.warn('Standard WebGL failed, trying experimental:', e);
+    }
+    
+    // Fallback to experimental
+    if (!gl) {
+      try {
+        gl = this.canvas.getContext('experimental-webgl', {
+          alpha: false,
+          premultipliedAlpha: false,
+          preserveDrawingBuffer: false,
+          antialias: true
+        }) as WebGLRenderingContext | null;
+      } catch (e) {
+        console.warn('Experimental WebGL also failed:', e);
+      }
+    }
     
     if (!gl || !(gl instanceof WebGLRenderingContext)) {
       console.error('WebGL not supported, psychedelic mode will use fallback rendering');
-      console.error('Canvas context:', this.canvas.getContext('2d') ? '2D available' : 'No context');
       return;
     }
+    
     this.gl = gl;
     
-    // Enable depth testing and blending
+    // Enable blending for smooth visuals
     gl.enable(gl.BLEND);
     gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
     
@@ -100,7 +125,7 @@ export class PsychedelicRenderer {
     if (!this.program) {
       console.error('Failed to load default shader');
     } else {
-      console.log('Psychedelic renderer initialized with WebGL');
+      console.log('Psychedelic renderer initialized with WebGL successfully');
     }
   }
   
@@ -258,9 +283,9 @@ export class PsychedelicRenderer {
 
   render(time: number) {
     // Lazy initialization of WebGL
-    if (!this.gl) {
+    if (!this.gl || !this.program) {
       this.initWebGL();
-      if (!this.gl || !this.program) {
+      if (!this.gl || !this.program || !this.positionBuffer) {
         // Fallback: draw a simple pattern if WebGL not available
         const ctx = this.canvas.getContext('2d');
         if (ctx) {
@@ -281,7 +306,6 @@ export class PsychedelicRenderer {
     }
     
     if (!this.program || !this.positionBuffer) {
-      console.warn('Psychedelic renderer: program or buffer not ready');
       return;
     }
 

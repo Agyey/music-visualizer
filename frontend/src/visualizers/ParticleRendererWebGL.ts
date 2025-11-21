@@ -48,33 +48,55 @@ export class ParticleRendererWebGL {
 
   constructor(canvas: HTMLCanvasElement, _analysis: ExtendedAudioAnalysisResponse | null) {
     this.canvas = canvas;
-    // Don't initialize WebGL in constructor - do it lazily when rendering
-    this.initParticles();
+    // WebGL initialization is now lazy - particles will be initialized when WebGL is ready
   }
 
   private initWebGL() {
     if (this.gl) return; // Already initialized
     
-    // Try to get existing WebGL context or create new one
-    const gl = this.canvas.getContext('webgl', {
-      alpha: false,
-      premultipliedAlpha: false,
-      preserveDrawingBuffer: false
-    });
+    // Ensure canvas has dimensions
+    if (this.canvas.width === 0 || this.canvas.height === 0) {
+      const rect = this.canvas.getBoundingClientRect();
+      this.canvas.width = rect.width || window.innerWidth;
+      this.canvas.height = rect.height || window.innerHeight;
+    }
+    
+    // Try to get WebGL context
+    let gl: WebGLRenderingContext | null = null;
+    
+    try {
+      gl = this.canvas.getContext('webgl', {
+        alpha: false,
+        premultipliedAlpha: false,
+        preserveDrawingBuffer: false,
+        antialias: true
+      }) as WebGLRenderingContext | null;
+    } catch (e) {
+      console.warn('WebGL context creation failed:', e);
+    }
     
     if (!gl) {
-      console.warn('WebGL not available, falling back to canvas 2D');
+      console.warn('WebGL not available for particles, will use fallback');
       return;
     }
     
     this.gl = gl;
     
-    // Enable additive blending
+    // Enable additive blending for particle glow
     gl.enable(gl.BLEND);
     gl.blendFunc(gl.SRC_ALPHA, gl.ONE); // Additive blending
     
     // Create main particle shader program
     this.program = this.createParticleProgram(gl);
+    
+    if (!this.program) {
+      console.error('Failed to create particle shader program');
+      return;
+    }
+    
+    // Initialize particles after WebGL is ready
+    this.initParticles();
+    console.log('Particle WebGL renderer initialized');
   }
 
   private createParticleProgram(gl: WebGLRenderingContext): WebGLProgram {
@@ -328,14 +350,16 @@ export class ParticleRendererWebGL {
   private initParticles() {
     // Initialize particle data (x, y, vx, vy, life, maxLife, size, hue, sat, bright)
     const stride = 10;
+    const width = this.canvas.width || 1920;
+    const height = this.canvas.height || 1080;
     this.particles = new Float32Array(this.particleCount * stride);
     
     for (let i = 0; i < this.particleCount; i++) {
       const idx = i * stride;
       
-      // Position (center of canvas)
-      this.particles[idx + 0] = this.canvas.width / 2;
-      this.particles[idx + 1] = this.canvas.height / 2;
+      // Position (random across canvas)
+      this.particles[idx + 0] = Math.random() * width;
+      this.particles[idx + 1] = Math.random() * height;
       
       // Velocity (random)
       const angle = Math.random() * Math.PI * 2;
