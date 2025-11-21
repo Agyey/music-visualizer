@@ -73,3 +73,16 @@ styles/
 Thumbs.db
 .DS_Store
 
+# iOS
+ios-app/**/*.xcodeproj/xcuserdata/
+ios-app/**/*.xcworkspace/xcuserdata/
+ios-app/**/DerivedData/
+ios-app/**/build/
+ios-app/**/*.app
+ios-app/**/*.ipa
+ios-app/**/*.dSYM.zip
+ios-app/**/*.dSYM
+ios-app/**/Pods/
+ios-app/**/*.xcworkspace
+ios-app/**/Podfile.lock
+
