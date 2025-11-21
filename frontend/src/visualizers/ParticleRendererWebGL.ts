@@ -453,7 +453,7 @@ export class ParticleRendererWebGL {
     const height = this.canvas.height;
     const centerX = width / 2;
     const centerY = height / 2;
-    const dt = 1 / 60;
+    const dt = 0.016; // ~60fps
 
     for (let i = 0; i < this.particleCount; i++) {
       const idx = i * this.stride;
@@ -466,42 +466,116 @@ export class ParticleRendererWebGL {
       const dx = x - centerX;
       const dy = y - centerY;
       const dist = Math.sqrt(dx * dx + dy * dy) || 1;
-      const bassForce = this.features.bass * 0.08;
-      vx += (dx / dist) * bassForce;
-      vy += (dy / dist) * bassForce;
-
-      const swirl = this.features.mid * 0.03;
-      const tempVx = vx;
-      vx = vx * Math.cos(swirl) - vy * Math.sin(swirl);
-      vy = tempVx * Math.sin(swirl) + vy * Math.cos(swirl);
-
-      const jitter = this.features.treble * 0.5;
-      vx += (Math.random() - 0.5) * jitter;
-      vy += (Math.random() - 0.5) * jitter;
-
-      if (this.features.beatPulse > 0.3) {
-        vx += (dx / dist) * this.features.beatPulse * 2.0;
-        vy += (dy / dist) * this.features.beatPulse * 2.0;
+      const angle = Math.atan2(dy, dx);
+      
+      // Flow field based on variant
+      let flowX = 0, flowY = 0;
+      
+      if (this.variant === "nebula") {
+        // Multiple curl-like flows for organic motion
+        const time = performance.now() / 1000;
+        const nx = x / width;
+        const ny = y / height;
+        
+        // Simulate curl noise with multiple sine waves
+        const flow1x = Math.sin(nx * 10 + time * 0.5) * this.features.mid * 0.8;
+        const flow1y = Math.cos(ny * 10 + time * 0.5) * this.features.mid * 0.8;
+        const flow2x = Math.cos(nx * 15 + time * 0.8) * this.features.treble * 0.6;
+        const flow2y = Math.sin(ny * 15 + time * 0.8) * this.features.treble * 0.6;
+        
+        flowX = flow1x + flow2x;
+        flowY = flow1y + flow2y;
+        
+        // Radial expansion
+        flowX += (dx / dist) * this.features.bass * 0.4;
+        flowY += (dy / dist) * this.features.bass * 0.4;
+        
+        // Swirling
+        const swirlAngle = angle + this.features.mid * 0.15 + time * 0.2;
+        const swirlDist = dist * 0.3;
+        flowX += (Math.cos(swirlAngle) * swirlDist - dx) * 0.5;
+        flowY += (Math.sin(swirlAngle) * swirlDist - dy) * 0.5;
+      } else if (this.variant === "vortex_swarm") {
+        // Strong rotational flow
+        const vortexAngle = angle + dist * 0.002 + performance.now() / 1000 * 0.3;
+        const vortexStrength = this.features.mid * 0.25;
+        flowX = Math.cos(vortexAngle) * dist * vortexStrength;
+        flowY = Math.sin(vortexAngle) * dist * vortexStrength;
+        
+        // Outward push
+        flowX += (dx / dist) * this.features.bass * 0.5;
+        flowY += (dy / dist) * this.features.bass * 0.5;
+      } else if (this.variant === "beat_fireworks") {
+        // Explosive bursts
+        if (this.features.beatPulse > 0.2) {
+          flowX = (dx / dist) * this.features.beatPulse * 3.0;
+          flowY = (dy / dist) * this.features.beatPulse * 3.0;
+          
+          // Radial waves
+          const wave = Math.sin(dist * 0.02 - performance.now() / 1000 * 5.0) * this.features.beatPulse * 0.3;
+          flowX += (dx / dist) * wave;
+          flowY += (dy / dist) * wave;
+        } else {
+          // Gentle inward flow
+          flowX = -(dx / dist) * 0.1;
+          flowY = -(dy / dist) * 0.1;
+        }
+      } else {
+        // Liquid flow: smooth continuous motion
+        const time = performance.now() / 1000;
+        const nx = x / width;
+        const ny = y / height;
+        
+        flowX = Math.sin(nx * 8 + time * 0.1) * this.features.mid * 0.6;
+        flowY = Math.cos(ny * 8 + time * 0.15) * this.features.bass * 0.4;
+        
+        // Gravity
+        flowY += this.gravity * 0.3;
+        
+        // Directional flow
+        const flowAngle = time * 0.1 + this.features.energy * 2.0;
+        flowX += Math.cos(flowAngle) * this.features.energy * 0.2;
+        flowY += Math.sin(flowAngle) * this.features.energy * 0.2;
       }
-
-      vx *= 0.98;
-      vy *= 0.98;
-
+      
+      // Apply turbulence
+      const turbX = (Math.random() - 0.5) * this.turbulence * 0.15;
+      const turbY = (Math.random() - 0.5) * this.turbulence * 0.15;
+      flowX += turbX;
+      flowY += turbY;
+      
+      // Treble jitter
+      const jitterX = (Math.random() - 0.5) * this.features.treble * 0.08;
+      const jitterY = (Math.random() - 0.5) * this.features.treble * 0.08;
+      flowX += jitterX;
+      flowY += jitterY;
+      
+      // Update velocity with flow field
+      vx += flowX * 0.05;
+      vy += flowY * 0.05;
+      
+      // Damping
+      vx *= 0.95;
+      vy *= 0.95;
+      
+      // Update position
       x += vx * dt * 60;
       y += vy * dt * 60;
-
+      
+      // Wrap around edges
       if (x < 0) x = width;
       if (x > width) x = 0;
       if (y < 0) y = height;
       if (y > height) y = 0;
-
+      
       life -= 0.002;
       if (life <= 0) {
         life = 1.0;
+        // Respawn in center area
         x = centerX + (Math.random() - 0.5) * 200;
         y = centerY + (Math.random() - 0.5) * 200;
         const angle = Math.random() * Math.PI * 2;
-        const speed = Math.random() * 2;
+        const speed = Math.random() * 0.3 + 0.1;
         vx = Math.cos(angle) * speed;
         vy = Math.sin(angle) * speed;
       }
