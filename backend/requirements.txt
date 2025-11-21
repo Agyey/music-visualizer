@@ -1,0 +1,23 @@
+fastapi==0.104.1
+uvicorn[standard]==0.24.0
+pydantic==2.5.0
+python-multipart==0.0.6
+librosa==0.10.1
+soundfile==0.12.1
+numpy==1.24.3
+moviepy==1.0.3
+scipy==1.11.4
+Pillow==10.1.0
+aiofiles==23.2.1
+# Audio transcription and processing
+faster-whisper==1.0.3
+torch==2.1.0
+demucs==4.0.1
+noisereduce==3.0.0
+# NLP and sentiment analysis
+transformers==4.35.0
+sentencepiece==0.1.99
+langdetect==1.0.9
+# Audio processing
+pyloudnorm==0.1.1
+
