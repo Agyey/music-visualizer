@@ -61,16 +61,9 @@ export const VisualizerControls: React.FC<VisualizerControlsProps> = ({
       };
       engine.setParticleVariant(variantMap[particleMode] || "nebula");
       
-      const renderer = engine.getParticleRenderer();
-      if (renderer && 'setParticleCount' in renderer) {
-        (renderer as any).setParticleCount(particleCount);
-      }
-      if (renderer && 'setTurbulence' in renderer) {
-        (renderer as any).setTurbulence(particleTurbulence);
-      }
-      if (renderer && 'setGravity' in renderer) {
-        (renderer as any).setGravity(particleGravity);
-      }
+      engine.setParticleCount(particleCount);
+      engine.setParticleTurbulence(particleTurbulence);
+      engine.setParticleGravity(particleGravity);
     }
   }, [engine, currentMode, particleMode, particleCount, particleTurbulence, particleGravity]);
 

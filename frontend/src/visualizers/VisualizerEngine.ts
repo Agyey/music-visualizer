@@ -276,6 +276,25 @@ export class VisualizerEngine {
       this.particleRenderer.setParticleMode(variantMap[variant] || 0);
     }
   }
+  
+  // Set particle parameters
+  setParticleCount(count: number) {
+    if (this.useWebGLParticles && this.particleRenderer instanceof ParticleRendererWebGL) {
+      this.particleRenderer.setParticleCount(count);
+    }
+  }
+  
+  setParticleTurbulence(turbulence: number) {
+    if (this.useWebGLParticles && this.particleRenderer instanceof ParticleRendererWebGL) {
+      this.particleRenderer.setTurbulence(turbulence);
+    }
+  }
+  
+  setParticleGravity(gravity: number) {
+    if (this.useWebGLParticles && this.particleRenderer instanceof ParticleRendererWebGL) {
+      this.particleRenderer.setGravity(gravity);
+    }
+  }
 
   // Set shader variant
   setShaderVariant(variant: string) {

@@ -37,6 +37,8 @@ export class ParticleRendererWebGL {
   private particleCount: number = DEFAULT_PROFILE.maxParticles;
   private variant: "nebula" | "vortex_swarm" | "beat_fireworks" | "liquid_flow" = "nebula";
   private qualityLevelValue: number = 2;
+  private turbulence: number = 0.5;
+  private gravity: number = 0.0;
 
   private features: Features = {
     bass: 0, mid: 0, treble: 0, energy: 0,
@@ -131,6 +133,8 @@ export class ParticleRendererWebGL {
       uniform float u_lyric_intensity;
       uniform float u_sentiment;
       uniform int u_variant;
+      uniform float u_turbulence;
+      uniform float u_gravity;
       
       varying vec4 v_color;
       varying float v_life;
@@ -199,45 +203,111 @@ export class ParticleRendererWebGL {
       }
       
       void main() {
-        vec2 pos = a_position;
-        float qualityScale = mix(0.4, 1.0, clamp(u_quality / 2.0, 0.0, 1.0));
-        vec2 flow = vec2(0.0);
-        if (u_variant == 0) {
-          flow = curlNoise(pos * mix(0.004, 0.01, qualityScale)) * u_mid * (0.2 + 0.4 * qualityScale);
-        } else if (u_variant == 1) {
-          flow = vec2(-(pos.y - center.y), pos.x - center.x) * 0.1 * u_mid;
-        } else if (u_variant == 2) {
-          if (u_beat_pulse > 0.3) {
-            flow = normalize(pos - center) * u_beat_pulse * 2.0;
-          }
-        } else {
-          flow = curlNoise(pos * mix(0.006, 0.012, qualityScale) + vec2(u_time * 0.1)) * u_mid * 0.3;
-        }
+        vec2 pos = a_position / u_resolution; // Normalize to 0-1
         vec2 center = vec2(0.5, 0.5);
         vec2 dir = pos - center;
         float dist = length(dir);
-        vec2 outward = dist > 0.0 ? normalize(dir) * u_bass * 0.3 : vec2(0.0);
-        vec2 jitter = vec2(
-          snoise(vec3(pos * 10.0, u_time * 2.0)),
-          snoise(vec3(pos * 10.0, u_time * 2.0 + 100.0))
-        ) * u_treble * mix(0.02, 0.05, qualityScale);
         float angle = atan(dir.y, dir.x);
-        float swirl = u_mid * 0.1;
-        float newAngle = angle + swirl;
-        vec2 swirled = center + vec2(cos(newAngle), sin(newAngle)) * dist;
-        pos += flow + outward * 0.5 + jitter + (swirled - pos) * 0.3;
-        if (u_beat_pulse > 0.3) {
-          vec2 burst = dist > 0.0 ? normalize(dir) * u_beat_pulse * 2.0 : vec2(0.0);
-          pos += burst;
+        
+        float qualityScale = mix(0.4, 1.0, clamp(u_quality / 2.0, 0.0, 1.0));
+        vec2 flow = vec2(0.0);
+        vec2 velocity = a_velocity;
+        
+        // Variant-specific flow fields for fluid motion
+        if (u_variant == 0) {
+          // Nebula: Multiple curl noise layers for organic flow
+          vec2 flow1 = curlNoise(pos * 0.008 + vec2(u_time * 0.05)) * u_mid * 0.8;
+          vec2 flow2 = curlNoise(pos * 0.015 + vec2(u_time * 0.08, u_time * 0.12)) * u_treble * 0.6;
+          vec2 flow3 = curlNoise(pos * 0.003 + vec2(u_time * 0.03)) * u_bass * 0.4;
+          flow = flow1 + flow2 + flow3;
+          
+          // Radial expansion with bass
+          vec2 radial = dist > 0.0 ? normalize(dir) * u_bass * 0.4 : vec2(0.0);
+          flow += radial;
+          
+          // Swirling motion
+          float swirlStrength = u_mid * 0.15;
+          float newAngle = angle + swirlStrength + u_time * 0.2;
+          vec2 swirl = vec2(cos(newAngle), sin(newAngle)) * dist * 0.3;
+          flow += (swirl - dir * dist) * 0.5;
+        } else if (u_variant == 1) {
+          // Vortex swarm: Strong rotational flow
+          float vortexStrength = u_mid * 0.25;
+          float vortexAngle = angle + dist * 2.0 + u_time * 0.3;
+          vec2 vortex = vec2(cos(vortexAngle), sin(vortexAngle)) * dist * vortexStrength;
+          flow = vortex;
+          
+          // Add outward push with bass
+          vec2 outward = dist > 0.0 ? normalize(dir) * u_bass * 0.5 : vec2(0.0);
+          flow += outward;
+        } else if (u_variant == 2) {
+          // Beat fireworks: Explosive bursts
+          if (u_beat_pulse > 0.2) {
+            vec2 burst = dist > 0.0 ? normalize(dir) * u_beat_pulse * 3.0 : vec2(0.0);
+            flow = burst;
+            
+            // Add radial waves
+            float wave = sin(dist * 20.0 - u_time * 5.0) * u_beat_pulse * 0.3;
+            flow += normalize(dir) * wave;
+          } else {
+            // Gentle inward flow when no beat
+            flow = -normalize(dir) * 0.1;
+          }
+        } else {
+          // Liquid flow: Smooth, continuous motion
+          vec2 flow1 = curlNoise(pos * 0.01 + vec2(u_time * 0.1)) * u_mid * 0.6;
+          vec2 flow2 = curlNoise(pos * 0.005 + vec2(u_time * 0.15)) * u_bass * 0.4;
+          flow = flow1 + flow2;
+          
+          // Gravity effect
+          flow += vec2(0.0, u_gravity * 0.3);
+          
+          // Smooth directional flow
+          float flowAngle = u_time * 0.1 + u_energy * 2.0;
+          vec2 directional = vec2(cos(flowAngle), sin(flowAngle)) * u_energy * 0.2;
+          flow += directional;
         }
-        vec2 clipPos = ((pos / u_resolution) * 2.0 - 1.0) * vec2(1.0, -1.0);
-        float size = a_size * (0.4 + a_life * 0.6) * (1.0 + u_beat_pulse * 0.5);
+        
+        // Apply turbulence (adds randomness to flow)
+        vec2 turbulenceNoise = vec2(
+          snoise(vec3(pos * 15.0 + vec2(u_time * 3.0), u_time * 0.5)),
+          snoise(vec3(pos * 15.0 + vec2(u_time * 3.2), u_time * 0.6))
+        ) * u_turbulence * 0.15;
+        flow += turbulenceNoise;
+        
+        // Treble adds high-frequency jitter
+        vec2 jitter = vec2(
+          snoise(vec3(pos * 25.0, u_time * 4.0)),
+          snoise(vec3(pos * 25.0, u_time * 4.0 + 50.0))
+        ) * u_treble * mix(0.03, 0.08, qualityScale);
+        flow += jitter;
+        
+        // Update velocity with flow field
+        velocity += flow * 0.05;
+        
+        // Apply damping
+        velocity *= 0.95;
+        
+        // Update position
+        pos += velocity * 0.02;
+        
+        // Wrap around edges
+        pos = mod(pos + vec2(1.0), vec2(1.0));
+        
+        // Convert back to pixel coordinates
+        vec2 pixelPos = pos * u_resolution;
+        vec2 clipPos = ((pixelPos / u_resolution) * 2.0 - 1.0) * vec2(1.0, -1.0);
+        
+        // Size based on life and audio
+        float size = a_size * (0.5 + a_life * 0.5) * (1.0 + u_beat_pulse * 0.4 + u_energy * 0.2);
         v_size = size;
         gl_Position = vec4(clipPos, 0.0, 1.0);
         gl_PointSize = size;
-        float hue = a_color.x + u_sentiment * 0.1 + u_time * 0.03;
-        float sat = a_color.y + u_lyric_intensity * 0.2;
-        float bright = a_color.z * (0.6 + a_life * 0.4) * (1.0 + u_beat_pulse * 0.6);
+        
+        // Color with audio reactivity
+        float hue = a_color.x + u_sentiment * 0.15 + u_time * 0.05;
+        float sat = a_color.y + u_lyric_intensity * 0.25;
+        float bright = a_color.z * (0.7 + a_life * 0.3) * (1.0 + u_beat_pulse * 0.5 + u_energy * 0.3);
         vec3 rgb = vec3(fract(hue), sat, bright);
         v_color = vec4(rgb, a_life);
         v_life = a_life;
@@ -319,22 +389,52 @@ export class ParticleRendererWebGL {
     const height = this.canvas.height || 1080;
     this.particles = new Float32Array(this.particleCount * this.stride);
     const hues = [0.0, 0.1, 0.17, 0.55, 0.65, 0.8, 0.92];
+    const centerX = width / 2;
+    const centerY = height / 2;
+    
     for (let i = 0; i < this.particleCount; i++) {
       const idx = i * this.stride;
-      const angle = (i / this.particleCount) * Math.PI * 4 + Math.random() * 0.5;
-      const radius = Math.random() * Math.min(width, height) * 0.4;
-      this.particles[idx + 0] = width / 2 + Math.cos(angle) * radius;
-      this.particles[idx + 1] = height / 2 + Math.sin(angle) * radius;
-      const speed = Math.random() * 0.5 + 0.2;
-      this.particles[idx + 2] = Math.cos(angle + Math.PI / 2) * speed;
-      this.particles[idx + 3] = Math.sin(angle + Math.PI / 2) * speed;
-      this.particles[idx + 4] = Math.random();
-      this.particles[idx + 5] = 1.0;
-      this.particles[idx + 6] = 2 + Math.random() * 4;
+      
+      // Distribute particles more evenly across the canvas, not just in a ring
+      const distribution = Math.random();
+      let x, y;
+      
+      if (distribution < 0.3) {
+        // Some particles near center
+        const radius = Math.random() * Math.min(width, height) * 0.2;
+        const angle = Math.random() * Math.PI * 2;
+        x = centerX + Math.cos(angle) * radius;
+        y = centerY + Math.sin(angle) * radius;
+      } else if (distribution < 0.7) {
+        // Most particles in a wider area
+        const radius = Math.random() * Math.min(width, height) * 0.4;
+        const angle = Math.random() * Math.PI * 2;
+        x = centerX + Math.cos(angle) * radius;
+        y = centerY + Math.sin(angle) * radius;
+      } else {
+        // Some particles scattered randomly
+        x = Math.random() * width;
+        y = Math.random() * height;
+      }
+      
+      this.particles[idx + 0] = x;
+      this.particles[idx + 1] = y;
+      
+      // Initial velocity based on position for fluid motion
+      const angle = Math.atan2(y - centerY, x - centerX);
+      const speed = Math.random() * 0.3 + 0.1;
+      // Add some tangential velocity for swirling
+      const tangentialAngle = angle + Math.PI / 2;
+      this.particles[idx + 2] = Math.cos(tangentialAngle) * speed;
+      this.particles[idx + 3] = Math.sin(tangentialAngle) * speed;
+      
+      this.particles[idx + 4] = Math.random(); // life
+      this.particles[idx + 5] = 1.0; // max life
+      this.particles[idx + 6] = 2 + Math.random() * 4; // size
       const hue = hues[Math.floor(Math.random() * hues.length)];
       this.particles[idx + 7] = hue + (Math.random() - 0.5) * 0.05;
-      this.particles[idx + 8] = 0.8 + Math.random() * 0.2;
-      this.particles[idx + 9] = 0.7 + Math.random() * 0.3;
+      this.particles[idx + 8] = 0.8 + Math.random() * 0.2; // saturation
+      this.particles[idx + 9] = 0.7 + Math.random() * 0.3; // brightness
     }
   }
 
@@ -520,6 +620,8 @@ export class ParticleRendererWebGL {
     const lyricLoc = gl.getUniformLocation(this.program, 'u_lyric_intensity');
     const sentimentLoc = gl.getUniformLocation(this.program, 'u_sentiment');
     const variantLoc = gl.getUniformLocation(this.program, 'u_variant');
+    const turbulenceLoc = gl.getUniformLocation(this.program, 'u_turbulence');
+    const gravityLoc = gl.getUniformLocation(this.program, 'u_gravity');
 
     if (resolutionLoc) gl.uniform2f(resolutionLoc, width, height);
     if (timeLoc) gl.uniform1f(timeLoc, time);
@@ -531,6 +633,8 @@ export class ParticleRendererWebGL {
     if (beatLoc) gl.uniform1f(beatLoc, this.features.beatPulse);
     if (lyricLoc) gl.uniform1f(lyricLoc, this.features.lyricIntensity);
     if (sentimentLoc) gl.uniform1f(sentimentLoc, this.features.lyricSentiment);
+    if (turbulenceLoc) gl.uniform1f(turbulenceLoc, this.turbulence);
+    if (gravityLoc) gl.uniform1f(gravityLoc, this.gravity);
     if (variantLoc) {
       const variantIndex = this.variant === "nebula" ? 0 :
         this.variant === "vortex_swarm" ? 1 :
@@ -543,6 +647,14 @@ export class ParticleRendererWebGL {
   
   setVariant(variant: "nebula" | "vortex_swarm" | "beat_fireworks" | "liquid_flow") {
     this.variant = variant;
+  }
+  
+  setTurbulence(turbulence: number) {
+    this.turbulence = turbulence;
+  }
+  
+  setGravity(gravity: number) {
+    this.gravity = gravity;
   }
 }
 

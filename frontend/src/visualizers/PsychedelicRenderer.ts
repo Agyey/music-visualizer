@@ -415,10 +415,12 @@ export class PsychedelicRenderer {
             -0.5 + sin(u_time * 0.2) * 0.3 + u_bass * 0.2,
             0.0 + cos(u_time * 0.15) * 0.2 + u_mid * 0.15
           );
-          float mandelbrotZoom = 1.5 + u_bass * 2.0;
-          vec2 mandelbrotC = (p * 0.3 + mandelbrotCenter) * mandelbrotZoom;
-          int maxIter = int(mix(20.0, 80.0, clamp(u_quality / 2.0, 0.0, 1.0)));
+          float mandelbrotZoom = 2.0 + u_bass * 3.0;
+          vec2 mandelbrotC = (p * 0.4 + mandelbrotCenter) * mandelbrotZoom;
+          int maxIter = int(mix(30.0, 100.0, clamp(u_quality / 2.0, 0.0, 1.0)));
           fractalValue = mandelbrot(mandelbrotC, maxIter);
+          // Make fractal more visible with better coloring
+          fractalValue = pow(fractalValue, 0.7);
         }
         // Julia set (audio-reactive constant)
         else if (patternType < 2.0) {
@@ -426,10 +428,12 @@ export class PsychedelicRenderer {
             sin(u_time * 0.3 + u_bass * 2.0) * 0.7885,
             cos(u_time * 0.25 + u_mid * 1.5) * 0.7885
           );
-          float juliaZoom = 1.2 + u_treble * 1.5;
-          vec2 juliaZ = p * 0.3 * juliaZoom;
-          int maxIter = int(mix(20.0, 70.0, clamp(u_quality / 2.0, 0.0, 1.0)));
+          float juliaZoom = 1.5 + u_treble * 2.0;
+          vec2 juliaZ = p * 0.4 * juliaZoom;
+          int maxIter = int(mix(30.0, 90.0, clamp(u_quality / 2.0, 0.0, 1.0)));
           fractalValue = julia(juliaZ, juliaC, maxIter);
+          // Make fractal more visible
+          fractalValue = pow(fractalValue, 0.7);
         }
         // Burning Ship fractal
         else if (patternType < 3.0) {
@@ -437,10 +441,12 @@ export class PsychedelicRenderer {
             -0.5 + sin(u_time * 0.18) * 0.2,
             -0.5 + cos(u_time * 0.22) * 0.2
           );
-          float shipZoom = 1.8 + u_energy * 2.5;
-          vec2 shipC = (p * 0.3 + shipCenter) * shipZoom;
-          int maxIter = int(mix(20.0, 75.0, clamp(u_quality / 2.0, 0.0, 1.0)));
+          float shipZoom = 2.2 + u_energy * 3.0;
+          vec2 shipC = (p * 0.4 + shipCenter) * shipZoom;
+          int maxIter = int(mix(30.0, 85.0, clamp(u_quality / 2.0, 0.0, 1.0)));
           fractalValue = burningShip(shipC, maxIter);
+          // Make fractal more visible
+          fractalValue = pow(fractalValue, 0.7);
         }
         // Spiral patterns
         else if (patternType < 4.0) {
@@ -480,20 +486,25 @@ export class PsychedelicRenderer {
         // Combine fractal, pattern, and noise
         float combinedPattern = 0.0;
         if (patternType < 3.0) {
-          // Use fractal value
-          combinedPattern = fractalValue * 0.7 + fbmValue * 0.2 + ridgedValue * 0.1;
+          // Use fractal value - make it dominant and visible
+          combinedPattern = fractalValue * 0.9;
+          // Add subtle noise only for texture, not to obscure fractal
+          combinedPattern += fbmValue * 0.05;
+          combinedPattern += ridgedValue * 0.05;
         } else {
           // Use mathematical pattern
-          combinedPattern = patternValue * 0.5 + fbmValue * 0.3 + ridgedValue * 0.2;
+          combinedPattern = patternValue * 0.6 + fbmValue * 0.25 + ridgedValue * 0.15;
         }
         
-        // Add sinusoidal patterns
-        combinedPattern += sin(vortexP.x * 4.0 + u_time) * 0.08;
-        combinedPattern += sin(vortexP.y * 4.0 + u_time * 1.1) * 0.08;
+        // Add subtle sinusoidal patterns only if not showing fractals
+        if (patternType >= 3.0) {
+          combinedPattern += sin(vortexP.x * 4.0 + u_time) * 0.08;
+          combinedPattern += sin(vortexP.y * 4.0 + u_time * 1.1) * 0.08;
+        }
         
         // Treble adds high-frequency shimmer
         float shimmer = sin(vortexP.x * 25.0 + u_time * 3.0) * sin(vortexP.y * 25.0 + u_time * 3.2);
-        combinedPattern += shimmer * u_treble * 0.15;
+        combinedPattern += shimmer * u_treble * 0.1;
         
         // Color palette - neon gradients with fractal coloring
         float hue1 = fract(combinedPattern * 0.8 + u_time * 0.1 + u_lyric_intensity * 0.5);
@@ -513,9 +524,14 @@ export class PsychedelicRenderer {
         float saturation = 0.85 + u_energy * 0.15;
         
         // Bright, glowing values with fractal enhancement
-        float value = 0.3 + combinedPattern * 0.7 + u_beat_pulse * 0.5;
+        float value = 0.2 + combinedPattern * 0.8 + u_beat_pulse * 0.4;
         if (patternType < 3.0 && fractalValue > 0.0) {
-          value += fractalValue * 0.4; // Make fractals glow more
+          // Make fractals much brighter and more visible
+          value = 0.3 + fractalValue * 1.2 + u_beat_pulse * 0.5;
+          // Add edge highlighting for fractals
+          if (fractalValue > 0.0 && fractalValue < 0.15) {
+            value += (1.0 - fractalValue / 0.15) * 0.8;
+          }
         }
         
         vec3 color = hsv2rgb(vec3(hue, saturation, value));
