@@ -80,7 +80,8 @@ export class ThreeDRenderer {
       0.1,
       1000
     );
-    this.camera.position.set(0, 0, 8);
+    this.camera.position.set(0, 0, 5); // Closer to see objects better
+    this.camera.lookAt(0, 0, 0);
     
     // Renderer - create with explicit context options
     try {
@@ -329,14 +330,23 @@ export class ThreeDRenderer {
     
     // Safety check before rendering
     if (!this.renderer || !this.camera || !this.scene) {
+      console.warn('Three.js not initialized:', { renderer: !!this.renderer, camera: !!this.camera, scene: !!this.scene });
       return;
     }
     if (!this.mainObject) {
       // Try to create main object if it doesn't exist
+      console.log('Main object missing, creating...');
       this.createMainObject();
       if (!this.mainObject) {
+        console.error('Failed to create main object');
         return;
       }
+    }
+    
+    // Ensure object is in scene
+    if (!this.scene.children.includes(this.mainObject)) {
+      console.log('Main object not in scene, adding...');
+      this.scene.add(this.mainObject);
     }
     
     // Update main object

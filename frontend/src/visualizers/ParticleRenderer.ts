@@ -101,7 +101,11 @@ export class ParticleRenderer {
       maxLife: 1.0,
       size: Math.random() * 2 + 1,
       color: { r: 255, g: 200, b: 100 },
-      trail: []
+      trail: [
+        { x: Math.random() * width, y: Math.random() * height, life: 0.8 },
+        { x: Math.random() * width, y: Math.random() * height, life: 0.6 },
+        { x: Math.random() * width, y: Math.random() * height, life: 0.4 }
+      ] // Initialize with some trail points
     };
   }
 
@@ -244,12 +248,12 @@ export class ParticleRenderer {
     // Update life
     p.life -= 0.002;
     
-    // Update trail
+    // Update trail - keep longer trails for better visibility
     p.trail.push({ x: p.x, y: p.y, life: 1.0 });
-    if (p.trail.length > 5) {
+    if (p.trail.length > 8) { // Increased trail length
       p.trail.shift();
     }
-    p.trail.forEach(t => t.life -= 0.2);
+    p.trail.forEach(t => t.life -= 0.15); // Slower fade for longer visibility
   }
 
   private updateNebula(p: Particle, width: number, height: number) {
@@ -340,57 +344,85 @@ export class ParticleRenderer {
   private renderParticle(p: Particle) {
     const alpha = p.life;
     
-    // Rich, vibrant color palette based on multiple factors
-    const baseHue = (30 + this.features.lyricSentiment * 60 + p.x * 0.05 + this.currentTime * 10) % 360;
-    const energyHue = (this.features.energy * 80 + p.y * 0.05) % 360;
-    const beatHue = (this.features.beatPulse * 150 + this.currentTime * 20) % 360;
+    // Theme-based color palette based on audio segment/section
+    let themeHue = 0;
+    let themeSaturation = 85;
+    let themeLightness = 65;
     
-    // Blend multiple hues for rich color variation
-    const hue = (baseHue * 0.35 + energyHue * 0.35 + beatHue * 0.3) % 360;
+    // Determine theme based on section and sentiment
+    switch (this.features.currentSection) {
+      case "intro":
+        themeHue = 200 + this.features.lyricSentiment * 40; // Cool blues to purples
+        break;
+      case "verse":
+        themeHue = 30 + this.features.lyricSentiment * 60; // Warm oranges to reds
+        break;
+      case "chorus":
+        themeHue = 300 + this.features.lyricSentiment * 40; // Magentas to purples
+        break;
+      case "drop":
+        themeHue = 0 + this.features.energy * 60; // Reds to yellows (high energy)
+        themeSaturation = 95;
+        themeLightness = 70;
+        break;
+      case "bridge":
+        themeHue = 180 + this.features.lyricSentiment * 30; // Cyans to greens
+        break;
+      default:
+        themeHue = 240 + this.features.energy * 60; // Blues to magentas
+    }
+    
+    // Add energy-based variation (but keep theme dominant)
+    const energyVariation = (this.features.energy * 20 + this.currentTime * 5) % 360;
+    const hue = (themeHue + energyVariation * 0.2) % 360; // Theme is 80% dominant
     
     // High saturation for vibrant colors
-    const saturation = 80 + this.features.lyricEnergy * 20 + this.features.energy * 15;
+    const saturation = themeSaturation + this.features.lyricEnergy * 15;
     
     // Bright, glowing lightness
-    const lightness = 60 + this.features.energy * 30 + this.features.beatPulse * 25;
+    const lightness = themeLightness + this.features.energy * 25 + this.features.beatPulse * 20;
     
-    // Enhanced trail rendering with smooth gradients
+    // Enhanced trail rendering with smooth gradients - make trails more visible
     for (let i = 0; i < p.trail.length; i++) {
       const t = p.trail[i];
       if (i > 0) {
         const prev = p.trail[i - 1];
-        const trailProgress = i / p.trail.length;
-        const trailAlpha = alpha * t.life * 0.6;
+        const trailProgress = i / Math.max(p.trail.length, 1);
+        const trailAlpha = alpha * t.life * 0.8; // Increased visibility
         
-        // Color shifts along trail for rainbow effect
-        const trailHue = (hue + trailProgress * 40) % 360;
-        const trailSaturation = Math.min(100, saturation * (0.85 + trailProgress * 0.15));
-        const trailLightness = lightness * (0.75 + trailProgress * 0.25);
+        // Color shifts along trail but maintains theme
+        const trailHue = (hue + trailProgress * 20) % 360; // Subtle shift
+        const trailSaturation = Math.min(100, saturation * (0.9 + trailProgress * 0.1));
+        const trailLightness = lightness * (0.8 + trailProgress * 0.2);
         
-        // Draw trail as line with gradient
+        // Draw trail as thick line with gradient for visibility
         const gradient = this.ctx.createLinearGradient(prev.x, prev.y, t.x, t.y);
-        gradient.addColorStop(0, `hsla(${trailHue}, ${trailSaturation}%, ${trailLightness}%, ${trailAlpha * 0.8})`);
-        gradient.addColorStop(1, `hsla(${trailHue}, ${trailSaturation}%, ${trailLightness}%, ${trailAlpha})`);
+        gradient.addColorStop(0, `hsla(${trailHue}, ${trailSaturation}%, ${trailLightness}%, ${trailAlpha * 0.9})`);
+        gradient.addColorStop(0.5, `hsla(${trailHue}, ${trailSaturation}%, ${trailLightness}%, ${trailAlpha})`);
+        gradient.addColorStop(1, `hsla(${trailHue}, ${trailSaturation}%, ${trailLightness}%, ${trailAlpha * 0.7})`);
         
         this.ctx.strokeStyle = gradient;
-        this.ctx.lineWidth = p.size * 0.8 * trailProgress;
+        this.ctx.lineWidth = p.size * (1.2 + trailProgress * 0.8); // Thicker trails
         this.ctx.lineCap = 'round';
+        this.ctx.lineJoin = 'round';
+        this.ctx.shadowBlur = 15 * trailProgress;
+        this.ctx.shadowColor = `hsla(${trailHue}, ${trailSaturation}%, ${trailLightness}%, ${trailAlpha})`;
         this.ctx.beginPath();
         this.ctx.moveTo(prev.x, prev.y);
         this.ctx.lineTo(t.x, t.y);
         this.ctx.stroke();
       }
       
-      // Trail particles
-      const trailProgress = i / p.trail.length;
-      const trailAlpha = alpha * t.life * 0.4 * trailProgress;
-      const trailHue = (hue + trailProgress * 30) % 360;
+      // Trail glow particles for extra visibility
+      const trailProgress = i / Math.max(p.trail.length, 1);
+      const trailAlpha = alpha * t.life * 0.6 * trailProgress;
+      const trailHue = (hue + trailProgress * 15) % 360;
       
       this.ctx.fillStyle = `hsla(${trailHue}, ${saturation}%, ${lightness}%, ${trailAlpha})`;
-      this.ctx.shadowBlur = 8 * trailProgress;
+      this.ctx.shadowBlur = 12 * trailProgress;
       this.ctx.shadowColor = `hsla(${trailHue}, ${saturation}%, ${lightness}%, ${trailAlpha})`;
       this.ctx.beginPath();
-      this.ctx.arc(t.x, t.y, p.size * 0.5 * trailProgress, 0, Math.PI * 2);
+      this.ctx.arc(t.x, t.y, p.size * 0.7 * trailProgress, 0, Math.PI * 2);
       this.ctx.fill();
     }
     

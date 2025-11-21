@@ -301,11 +301,13 @@ export class PsychedelicRenderer {
           ctx.arc(centerX, centerY, radius, 0, Math.PI * 2);
           ctx.fill();
         }
+        console.warn('Psychedelic renderer: Using fallback 2D rendering - WebGL not available');
         return;
       }
     }
     
     if (!this.program || !this.positionBuffer) {
+      console.warn('Psychedelic renderer: Program or buffer not ready');
       return;
     }
 
