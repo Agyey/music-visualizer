@@ -46,30 +46,36 @@ kernel void particle_compute(
     float2 dir = p.position - center;
     float dist = length(dir);
     
-    // Bass: radial expansion
-    float2 radial = normalize(dir) * uniforms.bass * 0.1;
-    p.velocity += radial;
+    // Bass: subtle radial expansion
+    if (dist > 0.001) {
+        float2 radial = normalize(dir) * uniforms.bass * 0.03;
+        p.velocity += radial;
+    }
     
-    // Mid: swirling motion
+    // Mid: gentle swirling motion
     float angle = atan2(dir.y, dir.x);
-    float newAngle = angle + uniforms.mid * 0.05;
-    float2 swirl = float2(cos(newAngle), sin(newAngle)) * dist * 0.02;
+    float newAngle = angle + uniforms.mid * 0.02;
+    float2 swirl = float2(cos(newAngle), sin(newAngle)) * dist * 0.01;
     p.velocity += swirl;
     
-    // Treble: high-frequency jitter
+    // Treble: subtle high-frequency jitter
     float2 jitter = float2(
-        sin(uniforms.time * 10.0 + p.position.x * 100.0) * uniforms.treble * 0.01,
-        cos(uniforms.time * 10.0 + p.position.y * 100.0) * uniforms.treble * 0.01
+        sin(uniforms.time * 5.0 + p.position.x * 50.0) * uniforms.treble * 0.005,
+        cos(uniforms.time * 5.0 + p.position.y * 50.0) * uniforms.treble * 0.005
     );
     p.velocity += jitter;
     
-    // Beat pulse: explosive burst
-    if (uniforms.beatPulse > 0.3) {
-        p.velocity += normalize(dir) * uniforms.beatPulse * 0.2;
+    // Beat pulse: gentle pulse
+    if (uniforms.beatPulse > 0.3 && dist > 0.001) {
+        p.velocity += normalize(dir) * uniforms.beatPulse * 0.05;
     }
     
-    // Damping
-    p.velocity *= 0.98;
+    // Damping - stronger to keep particles centered
+    p.velocity *= 0.95;
+    
+    // Gentle centering force to prevent particles from clustering at edges
+    float2 centerForce = (center - p.position) * 0.001;
+    p.velocity += centerForce;
     
     // Wrap around edges (position is in 0-1 space)
     if (p.position.x < 0.0) p.position.x = 1.0;
@@ -155,12 +161,14 @@ kernel void fractal_compute(
     float aspect = float(output.get_width()) / float(output.get_height());
     uv.x *= aspect;
     
-    // Mandelbrot set with audio-reactive zoom
-    float2 c = uv * (0.5 + uniforms.bass * 1.5) - float2(0.5 + sin(uniforms.time * 0.1) * 0.2, 0.0);
+    // Mandelbrot set with subtle audio-reactive zoom
+    float zoom = 0.5 + uniforms.bass * 0.2; // Reduced from 1.5
+    float2 offset = float2(0.5 + sin(uniforms.time * 0.05) * 0.1, 0.0); // Slower movement
+    float2 c = uv * zoom - offset;
     
     float2 z = float2(0.0);
     float iterations = 0.0;
-    float maxIter = 50.0 + uniforms.energy * 50.0;
+    float maxIter = 50.0 + uniforms.energy * 20.0; // Reduced from 50.0
     
     for (float i = 0.0; i < maxIter; i++) {
         if (length(z) > 2.0) break;
@@ -170,14 +178,58 @@ kernel void fractal_compute(
     
     float value = iterations / maxIter;
     
-    // Color mapping with audio reactivity
+    // Subtle color mapping with gentle audio reactivity
     float3 color = float3(
-        0.3 + sin(value * 10.0 + uniforms.time + uniforms.bass * 2.0) * 0.4,
-        0.3 + cos(value * 8.0 + uniforms.time * 1.2 + uniforms.mid * 2.0) * 0.4,
-        0.3 + sin(value * 12.0 + uniforms.time * 1.5 + uniforms.treble * 2.0) * 0.4
+        0.4 + sin(value * 8.0 + uniforms.time * 0.3 + uniforms.bass * 0.3) * 0.3,
+        0.4 + cos(value * 7.0 + uniforms.time * 0.4 + uniforms.mid * 0.3) * 0.3,
+        0.4 + sin(value * 9.0 + uniforms.time * 0.5 + uniforms.treble * 0.3) * 0.3
     );
     
-    color *= (0.7 + uniforms.energy * 0.3 + uniforms.beatPulse * 0.3);
+    // Subtle brightness variation
+    color *= (0.85 + uniforms.energy * 0.1 + uniforms.beatPulse * 0.05);
+    color = saturate(color);
+    
+    output.write(float4(color, 1.0), gid);
+}
+
+// Diffusion/Procedural compute shader (smoother, more organic)
+kernel void diffusion_compute(
+    texture2d<float, access::write> output [[texture(0)]],
+    constant ParticleUniforms &uniforms [[buffer(0)]],
+    uint2 gid [[thread_position_in_grid]]
+) {
+    if (gid.x >= output.get_width() || gid.y >= output.get_height()) {
+        return;
+    }
+    
+    float2 uv = float2(gid) / float2(output.get_width(), output.get_height());
+    
+    // Create smooth, flowing patterns with noise-like appearance
+    float time = uniforms.time * 0.2; // Slower movement
+    
+    // Multiple layers of smooth sine waves for organic flow
+    float pattern1 = sin(uv.x * 8.0 + time + uniforms.bass * 0.5) * 
+                     cos(uv.y * 6.0 + time * 1.1 + uniforms.mid * 0.5);
+    float pattern2 = sin(uv.x * 12.0 + time * 1.3 + uniforms.treble * 0.3) * 
+                     cos(uv.y * 10.0 + time * 0.9);
+    float pattern3 = sin((uv.x + uv.y) * 5.0 + time * 0.7);
+    
+    float combined = (pattern1 + pattern2 * 0.5 + pattern3 * 0.3) / 1.8;
+    
+    // Radial gradient from center
+    float2 center = float2(0.5, 0.5);
+    float dist = length(uv - center);
+    float radial = 1.0 - smoothstep(0.0, 0.7, dist);
+    
+    // Color based on patterns with subtle audio reactivity
+    float3 color = float3(
+        0.2 + combined * 0.3 + sin(time + uniforms.bass * 0.2) * 0.1,
+        0.2 + combined * 0.3 + cos(time * 1.2 + uniforms.mid * 0.2) * 0.1,
+        0.3 + combined * 0.4 + sin(time * 1.5 + uniforms.treble * 0.2) * 0.1
+    );
+    
+    // Apply radial fade and subtle brightness
+    color *= radial * (0.8 + uniforms.energy * 0.15 + uniforms.beatPulse * 0.05);
     color = saturate(color);
     
     output.write(float4(color, 1.0), gid);

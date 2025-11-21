@@ -14,6 +14,7 @@ class VisualizerEngine: NSObject, ObservableObject {
     private var renderPipelineState: MTLRenderPipelineState?
     private var computePipelineState: MTLComputePipelineState?
     private var fractalComputePipelineState: MTLComputePipelineState?
+    private var diffusionComputePipelineState: MTLComputePipelineState?
     private var diffusionRenderPipelineState: MTLRenderPipelineState?
     
     private var audioManager: AudioManager?
@@ -126,6 +127,15 @@ class VisualizerEngine: NSObject, ObservableObject {
                 print("⚠️ Fractal compute shader not available")
             }
         }
+        
+        // Diffusion compute
+        if let diffusionFunction = library?.makeFunction(name: "diffusion_compute") {
+            do {
+                diffusionComputePipelineState = try device.makeComputePipelineState(function: diffusionFunction)
+            } catch {
+                print("⚠️ Diffusion compute shader not available")
+            }
+        }
     }
     
     private func setupFractalTexture(size: CGSize) {
@@ -139,6 +149,7 @@ class VisualizerEngine: NSObject, ObservableObject {
         )
         textureDescriptor.usage = [.shaderWrite, .shaderRead]
         fractalTexture = device.makeTexture(descriptor: textureDescriptor)
+        diffusionTexture = device.makeTexture(descriptor: textureDescriptor)
     }
     
     private func setupParticles() {
@@ -280,9 +291,9 @@ extension VisualizerEngine: MTKViewDelegate {
         renderPassDescriptor: MTLRenderPassDescriptor,
         drawable: CAMetalDrawable
     ) {
-        // Use fractal compute as fallback for diffusion (procedural generation)
-        guard let fractalTexture = fractalTexture,
-              let fractalCompute = fractalComputePipelineState,
+        // Use diffusion compute shader for smooth, organic patterns
+        guard let diffusionTexture = diffusionTexture,
+              let diffusionCompute = diffusionComputePipelineState,
               let audioManager = audioManager else {
             // Clear screen if no texture
             let encoder = commandBuffer.makeRenderCommandEncoder(descriptor: renderPassDescriptor)
@@ -290,10 +301,10 @@ extension VisualizerEngine: MTKViewDelegate {
             return
         }
         
-        // Generate fractal pattern
+        // Generate diffusion pattern
         let computeEncoder = commandBuffer.makeComputeCommandEncoder()
-        computeEncoder?.setComputePipelineState(fractalCompute)
-        computeEncoder?.setTexture(fractalTexture, index: 0)
+        computeEncoder?.setComputePipelineState(diffusionCompute)
+        computeEncoder?.setTexture(diffusionTexture, index: 0)
         
         let features = audioManager.audioFeatures
         var uniforms = ParticleUniforms(
@@ -320,7 +331,7 @@ extension VisualizerEngine: MTKViewDelegate {
         if let renderState = diffusionRenderPipelineState {
             let encoder = commandBuffer.makeRenderCommandEncoder(descriptor: renderPassDescriptor)
             encoder?.setRenderPipelineState(renderState)
-            encoder?.setFragmentTexture(fractalTexture, index: 0)
+            encoder?.setFragmentTexture(diffusionTexture, index: 0)
             encoder?.drawPrimitives(type: .triangleStrip, vertexStart: 0, vertexCount: 4)
             encoder?.endEncoding()
         } else {
@@ -449,6 +460,7 @@ extension VisualizerEngine: MTKViewDelegate {
         let particles = particleBuffer.contents().bindMemory(to: Particle.self, capacity: particleCount)
         let features = audioManager.audioFeatures
         let time = Float(frameCount) / 60.0
+        let center = SIMD2<Float>(0.5, 0.5)
         
         for i in 0..<particleCount {
             var p = particles[i]
@@ -456,32 +468,39 @@ extension VisualizerEngine: MTKViewDelegate {
             // Update position
             p.position += p.velocity
             
-            // Apply audio-reactive forces
-            let angle = atan2(p.position.y - 0.5, p.position.x - 0.5)
-            let dist = length(p.position - SIMD2<Float>(0.5, 0.5))
+            // Apply subtle audio-reactive forces
+            let dir = p.position - center
+            let dist = length(dir)
             
-            // Bass: radial expansion
-            let bassForce = features.bass * 0.1
-            p.velocity += normalize(p.position - SIMD2<Float>(0.5, 0.5)) * bassForce
-            
-            // Mid: swirling
-            let swirl = features.mid * 0.05
-            let newAngle = angle + swirl
-            p.velocity += SIMD2<Float>(cos(newAngle), sin(newAngle)) * 0.02
-            
-            // Treble: jitter
-            p.velocity += SIMD2<Float>(
-                Float.random(in: -1...1) * features.treble * 0.01,
-                Float.random(in: -1...1) * features.treble * 0.01
-            )
-            
-            // Beat pulse
-            if features.beatPulse > 0.3 {
-                p.velocity += normalize(p.position - SIMD2<Float>(0.5, 0.5)) * features.beatPulse * 0.2
+            if dist > 0.001 {
+                // Bass: subtle radial expansion
+                let bassForce = features.bass * 0.03
+                p.velocity += normalize(dir) * bassForce
+                
+                // Mid: gentle swirling
+                let angle = atan2(dir.y, dir.x)
+                let swirl = features.mid * 0.02
+                let newAngle = angle + swirl
+                p.velocity += SIMD2<Float>(cos(newAngle), sin(newAngle)) * dist * 0.01
+                
+                // Beat pulse: gentle
+                if features.beatPulse > 0.3 {
+                    p.velocity += normalize(dir) * features.beatPulse * 0.05
+                }
             }
             
-            // Damping
-            p.velocity *= 0.98
+            // Treble: subtle jitter
+            p.velocity += SIMD2<Float>(
+                Float.random(in: -1...1) * features.treble * 0.005,
+                Float.random(in: -1...1) * features.treble * 0.005
+            )
+            
+            // Damping - stronger to keep particles centered
+            p.velocity *= 0.95
+            
+            // Gentle centering force
+            let centerForce = (center - p.position) * 0.001
+            p.velocity += centerForce
             
             // Wrap around
             if p.position.x < 0 { p.position.x = 1 }
@@ -493,7 +512,11 @@ extension VisualizerEngine: MTKViewDelegate {
             p.life -= 0.01
             if p.life <= 0 {
                 p.life = 1.0
-                p.position = SIMD2<Float>(Float.random(in: 0...1), Float.random(in: 0...1))
+                // Respawn near center
+                p.position = center + SIMD2<Float>(
+                    Float.random(in: -0.2...0.2),
+                    Float.random(in: -0.2...0.2)
+                )
                 p.velocity = SIMD2<Float>(Float.random(in: -0.01...0.01), Float.random(in: -0.01...0.01))
             }
             
