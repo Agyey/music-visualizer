@@ -5,6 +5,7 @@ import { AudioProcessingPanel } from './components/AudioProcessingPanel';
 import { VisualizerCanvas } from './components/VisualizerCanvas';
 import { VisualizerControls } from './components/VisualizerControls';
 import { SaveExportPanel } from './components/SaveExportPanel';
+import { RenderPanel } from './components/RenderPanel';
 import { UserAuth } from './components/UserAuth';
 import { UploadHistory } from './components/UploadHistory';
 import { ExtendedAudioAnalysisResponse, VisualizerMode } from './types/timeline';
@@ -210,19 +211,35 @@ function App() {
         />
       </CollapsiblePanel>
 
-      {/* Bottom Right: Save & Export */}
+      {/* Bottom Right: Render Video */}
       <CollapsiblePanel
-        title="Save & Export"
-        icon="💾"
+        title="Render Video"
+        icon="🎬"
         position="bottom-right"
-        width={isMobile ? "calc(100vw - 20px)" : "360px"}
+        width={isMobile ? "calc(100vw - 20px)" : "400px"}
         defaultExpanded={false}
       >
-        <SaveExportPanel
+        <RenderPanel
           analysis={analysis}
-          visualizerMode={visualizerMode}
+          audioId={analysis?.audio_id || null}
         />
       </CollapsiblePanel>
+
+      {/* Save & Export (if still needed) */}
+      {false && (
+        <CollapsiblePanel
+          title="Save & Export"
+          icon="💾"
+          position="bottom-right"
+          width={isMobile ? "calc(100vw - 20px)" : "360px"}
+          defaultExpanded={false}
+        >
+          <SaveExportPanel
+            analysis={analysis}
+            visualizerMode={visualizerMode}
+          />
+        </CollapsiblePanel>
+      )}
 
       {/* Bottom Center: Visualizer Controls (Always visible when expanded) */}
       <CollapsiblePanel
