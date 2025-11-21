@@ -1,9 +1,10 @@
 /**
- * 3D Visualizer using Three.js
- * Features: morphing shapes, camera fly-through, audio-reactive visuals
+ * Advanced 3D Visualizer using Three.js
+ * Features: morphing shapes, emissive neon materials, wireframe overlay, depth fog, audio-reactive animation
  */
 import * as THREE from 'three';
 import { ExtendedAudioAnalysisResponse } from '../types/timeline';
+import { QualityProfile } from './VisualizerQualityManager';
 
 interface Features {
   bass: number;
@@ -24,13 +25,8 @@ export class ThreeDRenderer {
   private camera!: THREE.PerspectiveCamera;
   private renderer!: THREE.WebGLRenderer;
   private mainObject: THREE.Mesh | null = null;
+  private wireframeObject: THREE.Mesh | null = null;
   private orbitObjects: THREE.Mesh[] = [];
-  private currentShape: string = "sphere";
-  private morphTarget: string = "torus";
-  private morphProgress: number = 0;
-  private cameraPath: THREE.Vector3[] = [];
-  private cameraPathIndex: number = 0;
-  private currentTime: number = 0;
   
   private features: Features = {
     bass: 0, mid: 0, treble: 0, energy: 0,
@@ -47,16 +43,26 @@ export class ThreeDRenderer {
   };
 
   private rendererInitialized: boolean = false;
+  private cameraAngle: number = 0;
+  private morphProgress: number = 0;
+  private shapes: string[] = ["sphere", "torus", "knot", "polyhedra", "cube"];
+  private qualityProfile: QualityProfile | null = null;
 
   constructor(canvas: HTMLCanvasElement, _analysis: ExtendedAudioAnalysisResponse | null) {
     this.canvas = canvas;
-    // Don't initialize Three.js renderer in constructor - do it lazily when rendering
+  }
+  
+  setQualityProfile(profile: QualityProfile) {
+    this.qualityProfile = profile;
+    // Disable 3D if quality doesn't allow it
+    if (!profile.use3D && this.rendererInitialized) {
+      // Could hide or simplify scene here
+    }
   }
 
   private initThreeJS() {
     if (this.rendererInitialized) return;
     
-    // Ensure canvas has valid dimensions
     if (this.canvas.width === 0 || this.canvas.height === 0) {
       const rect = this.canvas.getBoundingClientRect();
       this.canvas.width = rect.width || window.innerWidth;
@@ -69,7 +75,10 @@ export class ThreeDRenderer {
     this.scene = new THREE.Scene();
     this.scene.background = new THREE.Color(0x05060a);
     
-    // Camera - use safe aspect ratio calculation
+    // Add fog for depth
+    this.scene.fog = new THREE.FogExp2(0x05060a, 0.15);
+    
+    // Camera
     const aspect = this.canvas.width > 0 && this.canvas.height > 0
       ? this.canvas.width / this.canvas.height
       : window.innerWidth / window.innerHeight;
@@ -80,10 +89,10 @@ export class ThreeDRenderer {
       0.1,
       1000
     );
-    this.camera.position.set(0, 0, 5); // Closer to see objects better
+    this.camera.position.set(0, 0, 8);
     this.camera.lookAt(0, 0, 0);
     
-    // Renderer - create with explicit context options
+    // Renderer
     try {
       this.renderer = new THREE.WebGLRenderer({ 
         canvas: this.canvas, 
@@ -101,16 +110,30 @@ export class ThreeDRenderer {
       this.renderer.setSize(this.canvas.width, this.canvas.height);
       this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
       this.renderer.setClearColor(0x05060a, 1);
+      this.renderer.shadowMap.enabled = true;
+      this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
       console.log('Three.js renderer created successfully');
     } catch (e) {
       console.error('Three.js WebGL renderer could not be created:', e);
       return;
     }
     
-    // Lighting
-    const ambientLight = new THREE.AmbientLight(0xffffff, 0.6);
+    // Lighting - strong backlight and rim light
+    const ambientLight = new THREE.AmbientLight(0xffffff, 0.3);
     this.scene.add(ambientLight);
     
+    // Strong backlight (emissive glow source)
+    const backLight = new THREE.DirectionalLight(0xff6b6b, 2.0);
+    backLight.position.set(-5, 5, -10);
+    backLight.castShadow = true;
+    this.scene.add(backLight);
+    
+    // Rim light
+    const rimLight = new THREE.DirectionalLight(0x4ecdc4, 1.5);
+    rimLight.position.set(5, -5, 5);
+    this.scene.add(rimLight);
+    
+    // Point lights for extra glow
     const pointLight1 = new THREE.PointLight(0xff6b6b, 1.5, 100);
     pointLight1.position.set(5, 5, 5);
     this.scene.add(pointLight1);
@@ -125,9 +148,6 @@ export class ThreeDRenderer {
     // Create orbiting particles
     this.createOrbitObjects();
     
-    // Generate camera path
-    this.generateCameraPath();
-    
     this.rendererInitialized = true;
     console.log('Three.js renderer initialized successfully');
   }
@@ -135,7 +155,7 @@ export class ThreeDRenderer {
   private createMainObject() {
     if (!this.scene) return;
     
-    // Remove existing object if any
+    // Remove existing objects
     if (this.mainObject) {
       this.scene.remove(this.mainObject);
       this.mainObject.geometry.dispose();
@@ -143,49 +163,80 @@ export class ThreeDRenderer {
         this.mainObject.material.dispose();
       }
     }
+    if (this.wireframeObject) {
+      this.scene.remove(this.wireframeObject);
+      this.wireframeObject.geometry.dispose();
+      if (this.wireframeObject.material instanceof THREE.Material) {
+        this.wireframeObject.material.dispose();
+      }
+    }
     
     // Create geometry based on current shape
     const geometry = this.createGeometry(this.config.shapeFamily);
     
-    // Material with emission for glow
+    // Emissive neon material with glow
     const material = new THREE.MeshStandardMaterial({
       color: 0xff6b6b,
-      emissive: 0x331122,
-      emissiveIntensity: 0.4,
-      metalness: 0.8,
-      roughness: 0.2,
+      emissive: 0xff3366,
+      emissiveIntensity: 0.8 + this.features.energy * 0.2,
+      metalness: 0.1,
+      roughness: 0.1,
     });
     
     this.mainObject = new THREE.Mesh(geometry, material);
+    this.mainObject.castShadow = true;
+    this.mainObject.receiveShadow = true;
     this.scene.add(this.mainObject);
+    
+    // Wireframe overlay
+    const wireframeMaterial = new THREE.MeshBasicMaterial({
+      color: 0x00ffff,
+      wireframe: true,
+      transparent: true,
+      opacity: 0.3,
+    });
+    
+    this.wireframeObject = new THREE.Mesh(geometry.clone(), wireframeMaterial);
+    this.scene.add(this.wireframeObject);
+    
     console.log('Main 3D object created:', this.config.shapeFamily);
   }
 
   private createGeometry(shapeType: string): THREE.BufferGeometry {
     switch (shapeType) {
       case "sphere":
-        return new THREE.SphereGeometry(1, 32, 32);
+        return new THREE.SphereGeometry(1, 64, 64);
       case "torus":
-        return new THREE.TorusGeometry(1, 0.4, 16, 100);
+        return new THREE.TorusGeometry(1, 0.4, 32, 100);
       case "cube":
-        return new THREE.BoxGeometry(1.5, 1.5, 1.5);
+        return new THREE.BoxGeometry(1.5, 1.5, 1.5, 8, 8, 8);
       case "polyhedra":
-        return new THREE.OctahedronGeometry(1, 1);
+        return new THREE.OctahedronGeometry(1, 2);
       case "knot":
-        return new THREE.TorusKnotGeometry(0.8, 0.3, 100, 16);
+        return new THREE.TorusKnotGeometry(0.8, 0.3, 100, 32);
       default:
-        return new THREE.SphereGeometry(1, 32, 32);
+        return new THREE.SphereGeometry(1, 64, 64);
     }
   }
 
   private createOrbitObjects() {
-    const count = 20;
+    // Clear existing
+    this.orbitObjects.forEach(obj => {
+      this.scene.remove(obj);
+      obj.geometry.dispose();
+      if (obj.material instanceof THREE.Material) {
+        obj.material.dispose();
+      }
+    });
+    this.orbitObjects = [];
+    
+    const count = 30;
     for (let i = 0; i < count; i++) {
-      const geometry = new THREE.SphereGeometry(0.1, 8, 8);
+      const geometry = new THREE.SphereGeometry(0.08, 8, 8);
       const material = new THREE.MeshBasicMaterial({
-        color: new THREE.Color().setHSL(i / count, 1, 0.5),
+        color: new THREE.Color().setHSL(i / count, 1, 0.6),
         transparent: true,
-        opacity: 0.8
+        opacity: 0.9
       });
       const mesh = new THREE.Mesh(geometry, material);
       this.orbitObjects.push(mesh);
@@ -193,25 +244,11 @@ export class ThreeDRenderer {
     }
   }
 
-  private generateCameraPath() {
-    // Generate a smooth path around/through the object
-    const segments = 50;
-    for (let i = 0; i <= segments; i++) {
-      const t = (i / segments) * Math.PI * 2;
-      const radius = 6 + Math.sin(t * 2) * 2;
-      const x = Math.cos(t) * radius;
-      const y = Math.sin(t * 0.5) * 3;
-      const z = Math.sin(t) * radius;
-      this.cameraPath.push(new THREE.Vector3(x, y, z));
-    }
-  }
-
   updateAnalysis(_analysis: ExtendedAudioAnalysisResponse | null) {
     // Analysis stored in engine
   }
 
-  updateFeatures(time: number, features: Features) {
-    this.currentTime = time;
+  updateFeatures(_time: number, features: Features) {
     this.features = features;
     
     // Update morph progress
@@ -219,221 +256,10 @@ export class ThreeDRenderer {
     if (this.morphProgress >= 1.0) {
       this.morphProgress = 0;
       // Switch to next shape
-      const shapes: string[] = ["sphere", "torus", "cube", "polyhedra", "knot"];
-      const currentIdx = shapes.indexOf(this.currentShape);
-      this.morphTarget = shapes[(currentIdx + 1) % shapes.length];
-      this.currentShape = this.morphTarget;
-    }
-    
-    // Update camera based on section
-    this.updateCameraPath();
-  }
-
-  private updateCameraPath() {
-    const section = this.features.currentSection;
-    
-    // Different camera behaviors per section
-    switch (section) {
-      case "intro":
-        this.config.cameraSpeed = 0.3;
-        this.config.orbitRadius = 7;
-        break;
-      case "verse":
-        this.config.cameraSpeed = 0.4;
-        this.config.orbitRadius = 6;
-        break;
-      case "chorus":
-        this.config.cameraSpeed = 0.6;
-        this.config.orbitRadius = 5;
-        break;
-      case "drop":
-        this.config.cameraSpeed = 1.0;
-        this.config.orbitRadius = 4;
-        break;
-      default:
-        this.config.cameraSpeed = 0.5;
-        this.config.orbitRadius = 5;
-    }
-  }
-
-  setShapeFamily(family: "sphere" | "torus" | "cube" | "polyhedra" | "knot") {
-    this.config.shapeFamily = family;
-    if (this.mainObject) {
-      const newGeometry = this.createGeometry(family);
-      this.mainObject.geometry.dispose();
-      this.mainObject.geometry = newGeometry;
-    }
-  }
-
-  setMorphSpeed(speed: number) {
-    this.config.morphSpeed = speed;
-  }
-
-  setCameraSpeed(speed: number) {
-    this.config.cameraSpeed = speed;
-  }
-
-  setOrbitRadius(radius: number) {
-    this.config.orbitRadius = radius;
-  }
-
-  setFOV(fov: number) {
-    this.config.fov = fov;
-    if (this.rendererInitialized && this.camera) {
-      this.camera.fov = fov;
-      this.camera.updateProjectionMatrix();
-    }
-  }
-
-  resize(width: number, height: number) {
-    this.canvas.width = width;
-    this.canvas.height = height;
-    
-    // Only resize if Three.js is initialized
-    if (this.rendererInitialized && this.camera && this.renderer) {
-      const aspect = width > 0 && height > 0 ? width / height : 1;
-      this.camera.aspect = aspect;
-      this.camera.updateProjectionMatrix();
-      this.renderer.setSize(width, height);
-    } else if (!this.rendererInitialized && width > 0 && height > 0) {
-      // If not initialized yet but we have dimensions, try to initialize
-      // This will be called on first render anyway, but this ensures dimensions are set
-    }
-  }
-
-  render(time: number) {
-    // Lazy initialization of Three.js
-    if (!this.rendererInitialized) {
-      this.initThreeJS();
-      if (!this.rendererInitialized || !this.renderer || !this.camera || !this.scene) {
-        console.warn('Three.js initialization failed, using fallback');
-        // Fallback rendering
-        const ctx = this.canvas.getContext('2d');
-        if (ctx) {
-          ctx.fillStyle = 'rgb(5, 6, 10)';
-          ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
-          ctx.fillStyle = 'rgba(0, 170, 255, 0.5)';
-          ctx.font = '24px Arial';
-          ctx.textAlign = 'center';
-          ctx.fillText('3D Mode: Initializing...', this.canvas.width / 2, this.canvas.height / 2);
-        }
-        return;
-      }
-      
-      // Update camera aspect after initialization
-      if (this.canvas.width > 0 && this.canvas.height > 0) {
-        this.camera.aspect = this.canvas.width / this.canvas.height;
-        this.camera.updateProjectionMatrix();
-        this.renderer.setSize(this.canvas.width, this.canvas.height);
-      }
-    }
-    
-    // Safety check before rendering
-    if (!this.renderer || !this.camera || !this.scene) {
-      console.warn('Three.js not initialized:', { renderer: !!this.renderer, camera: !!this.camera, scene: !!this.scene });
-      return;
-    }
-    if (!this.mainObject) {
-      // Try to create main object if it doesn't exist
-      console.log('Main object missing, creating...');
+      const currentIdx = this.shapes.indexOf(this.config.shapeFamily);
+      this.config.shapeFamily = this.shapes[(currentIdx + 1) % this.shapes.length] as any;
       this.createMainObject();
-      if (!this.mainObject) {
-        console.error('Failed to create main object');
-        return;
-      }
     }
-    
-    // Ensure object is in scene
-    if (!this.scene.children.includes(this.mainObject)) {
-      console.log('Main object not in scene, adding...');
-      this.scene.add(this.mainObject);
-    }
-    
-    // Update main object
-    const bass = this.features.bass;
-    const mid = this.features.mid;
-    const treble = this.features.treble;
-    const energy = this.features.energy;
-    const beatPulse = this.features.beatPulse;
-    
-    // Scale based on bass
-    const scale = 1.0 + bass * 0.5 + beatPulse * 0.3;
-    this.mainObject.scale.set(scale, scale, scale);
-    
-    // Rotation based on mid
-    this.mainObject.rotation.x += mid * 0.02;
-    this.mainObject.rotation.y += mid * 0.03;
-    this.mainObject.rotation.z += treble * 0.01;
-    
-    // Displacement/noise on vertices based on treble (simplified to avoid performance issues)
-    // Instead of modifying geometry, we'll use scale variation
-    if (treble > 0.3) {
-      const noiseScale = 1.0 + treble * 0.1 * Math.sin(time * 3);
-      this.mainObject.scale.multiplyScalar(noiseScale / this.mainObject.scale.x);
-    }
-    
-    // Update material color based on emotion and sentiment
-    if (this.mainObject.material instanceof THREE.MeshStandardMaterial) {
-      const sentiment = this.features.lyricSentiment;
-      const emotion = this.features.emotion || "neutral";
-      
-      // Color mapping
-      let hue = 0;
-      if (emotion === "happy") hue = 0.15; // Yellow
-      else if (emotion === "sad") hue = 0.6; // Blue
-      else if (emotion === "angry") hue = 0.0; // Red
-      else if (emotion === "chill") hue = 0.5; // Cyan
-      else hue = 0.3; // Green
-      
-      hue += sentiment * 0.1;
-      
-      const color = new THREE.Color().setHSL(hue, 0.8, 0.5);
-      this.mainObject.material.color = color;
-      this.mainObject.material.emissive = color.clone().multiplyScalar(0.3);
-      this.mainObject.material.emissiveIntensity = 0.3 + this.features.lyricIntensity * 0.5;
-    }
-    
-    // Update FOV based on bass (with limits)
-    const targetFOV = this.config.fov + bass * 10;
-    this.camera.fov = Math.max(50, Math.min(100, targetFOV));
-    this.camera.updateProjectionMatrix();
-    
-    // Camera movement along path
-    if (this.cameraPath.length > 0) {
-      this.cameraPathIndex = (this.cameraPathIndex + this.config.cameraSpeed * 0.01) % this.cameraPath.length;
-      const currentIdx = Math.floor(this.cameraPathIndex) % this.cameraPath.length;
-      const nextIdx = (currentIdx + 1) % this.cameraPath.length;
-      const alpha = this.cameraPathIndex % 1;
-      
-      const currentPos = this.cameraPath[currentIdx];
-      const nextPos = this.cameraPath[nextIdx];
-      
-      this.camera.position.lerpVectors(currentPos, nextPos, alpha);
-      this.camera.lookAt(0, 0, 0);
-      
-      // Beat pulse camera kick
-      if (beatPulse > 0.3) {
-        const direction = this.camera.position.clone().normalize();
-        this.camera.position.addScaledVector(direction, beatPulse * 0.3);
-      }
-    }
-    
-    // Update orbit objects
-    for (let i = 0; i < this.orbitObjects.length; i++) {
-      const obj = this.orbitObjects[i];
-      const angle = (this.currentTime * 0.5 + (i / this.orbitObjects.length) * Math.PI * 2);
-      const radius = this.config.orbitRadius + energy * 2;
-      obj.position.x = Math.cos(angle) * radius;
-      obj.position.y = Math.sin(angle * 0.7) * radius * 0.5;
-      obj.position.z = Math.sin(angle) * radius;
-      
-      // Scale with treble
-      const objScale = 0.1 + treble * 0.2;
-      obj.scale.set(objScale, objScale, objScale);
-    }
-    
-    // Render
-    this.renderer.render(this.scene, this.camera);
   }
 
   setThreeDConfig(config: {
@@ -444,12 +270,10 @@ export class ThreeDRenderer {
     field_of_view?: number;
     depth_distortion?: number;
   }) {
-    if (config.shape_family) {
+    if (config.shape_family && config.shape_family !== this.config.shapeFamily) {
       this.config.shapeFamily = config.shape_family as any;
-      if (this.rendererInitialized && this.mainObject) {
-        const newGeometry = this.createGeometry(config.shape_family);
-        this.mainObject.geometry.dispose();
-        this.mainObject.geometry = newGeometry;
+      if (this.rendererInitialized) {
+        this.createMainObject();
       }
     }
     if (config.morph_speed !== undefined) {
@@ -461,13 +285,136 @@ export class ThreeDRenderer {
     if (config.orbit_radius !== undefined) {
       this.config.orbitRadius = config.orbit_radius;
     }
-    if (config.field_of_view !== undefined) {
+    if (config.field_of_view !== undefined && this.camera) {
       this.config.fov = config.field_of_view;
-      if (this.rendererInitialized && this.camera) {
-        this.camera.fov = config.field_of_view;
-        this.camera.updateProjectionMatrix();
+      this.camera.fov = config.field_of_view;
+      this.camera.updateProjectionMatrix();
+    }
+  }
+
+  resize(width: number, height: number, profile?: QualityProfile) {
+    if (profile) {
+      this.qualityProfile = profile;
+      if (!profile.use3D && this.rendererInitialized) {
+        // Could simplify or hide scene
+      }
+    }
+    
+    this.canvas.width = width;
+    this.canvas.height = height;
+    
+    if (this.rendererInitialized && this.camera && this.renderer) {
+      const aspect = width > 0 && height > 0 ? width / height : 1;
+      this.camera.aspect = aspect;
+      this.camera.updateProjectionMatrix();
+      this.renderer.setSize(width, height);
+      // Adjust pixel ratio based on quality
+      if (this.qualityProfile) {
+        const pixelRatio = this.qualityProfile.level === "high" 
+          ? Math.min(window.devicePixelRatio, 2)
+          : this.qualityProfile.level === "medium"
+          ? Math.min(window.devicePixelRatio, 1.5)
+          : 1;
+        this.renderer.setPixelRatio(pixelRatio);
+      }
+    } else if (!this.rendererInitialized && width > 0 && height > 0) {
+      // Only initialize if quality allows 3D
+      if (!this.qualityProfile || this.qualityProfile.use3D) {
+        this.initThreeJS();
       }
     }
   }
-}
 
+  render(time: number) {
+    if (!this.rendererInitialized) {
+      this.initThreeJS();
+      if (!this.rendererInitialized || !this.renderer || !this.camera || !this.scene) {
+        return;
+      }
+    }
+    
+    if (!this.renderer || !this.camera || !this.scene) {
+      return;
+    }
+    if (!this.mainObject) {
+      this.createMainObject();
+      if (!this.mainObject) {
+        return;
+      }
+    }
+    
+    // Ensure object is in scene
+    if (!this.scene.children.includes(this.mainObject)) {
+      this.scene.add(this.mainObject);
+    }
+    if (this.wireframeObject && !this.scene.children.includes(this.wireframeObject)) {
+      this.scene.add(this.wireframeObject);
+    }
+    
+    // Audio-driven animation
+    
+    // Bass → scale pulses
+    const bassScale = 1.0 + this.features.bass * 0.3 + this.features.beatPulse * 0.2;
+    this.mainObject.scale.set(bassScale, bassScale, bassScale);
+    if (this.wireframeObject) {
+      this.wireframeObject.scale.set(bassScale, bassScale, bassScale);
+    }
+    
+    // Mid → rotation speed
+    const rotationSpeed = 0.01 + this.features.mid * 0.02;
+    this.mainObject.rotation.x += rotationSpeed;
+    this.mainObject.rotation.y += rotationSpeed * 1.3;
+    this.mainObject.rotation.z += rotationSpeed * 0.7;
+    if (this.wireframeObject) {
+      this.wireframeObject.rotation.copy(this.mainObject.rotation);
+    }
+    
+    // Treble → polygon displacement (via material emissive intensity)
+    if (this.mainObject.material instanceof THREE.MeshStandardMaterial) {
+      this.mainObject.material.emissiveIntensity = 0.8 + this.features.treble * 0.4 + this.features.energy * 0.3;
+      
+      // Color shift based on sentiment and energy
+      const hue = (this.features.lyricSentiment * 0.3 + this.features.energy * 0.2 + time * 0.1) % 1.0;
+      const color = new THREE.Color().setHSL(hue, 0.9, 0.6);
+      this.mainObject.material.emissive = color;
+      this.mainObject.material.color = color;
+    }
+    
+    // Beat → shockwave (quick scale flash)
+    if (this.features.beatPulse > 0.5) {
+      const beatScale = 1.0 + this.features.beatPulse * 0.5;
+      this.mainObject.scale.set(beatScale, beatScale, beatScale);
+      if (this.wireframeObject) {
+        this.wireframeObject.scale.set(beatScale, beatScale, beatScale);
+      }
+    }
+    
+    // Camera rotation and zoom
+    this.cameraAngle += this.config.cameraSpeed * (1 + this.features.mid * 0.5);
+    const radius = this.config.orbitRadius + Math.sin(time * 0.5) * 1.0;
+    const cameraX = Math.cos(this.cameraAngle) * radius;
+    const cameraY = Math.sin(this.cameraAngle * 0.7) * 2.0;
+    const cameraZ = Math.sin(this.cameraAngle) * radius;
+    
+    this.camera.position.set(cameraX, cameraY, cameraZ);
+    this.camera.lookAt(0, 0, 0);
+    
+    // Update orbiting particles
+    this.orbitObjects.forEach((obj, i) => {
+      const angle = (i / this.orbitObjects.length) * Math.PI * 2 + time * 0.5;
+      const orbitRadius = 3.0 + this.features.bass * 1.0;
+      obj.position.set(
+        Math.cos(angle) * orbitRadius,
+        Math.sin(angle * 2) * 1.5,
+        Math.sin(angle) * orbitRadius
+      );
+      
+      // Pulse with beat
+      const scale = 1.0 + this.features.beatPulse * 0.5;
+      obj.scale.set(scale, scale, scale);
+    });
+    
+    // Render
+    this.renderer.render(this.scene, this.camera);
+  }
+}

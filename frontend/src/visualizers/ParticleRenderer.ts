@@ -1,4 +1,5 @@
 import { ExtendedAudioAnalysisResponse } from '../types/timeline';
+import { QualityProfile } from './VisualizerQualityManager';
 
 interface Features {
   bass: number;
@@ -68,6 +69,13 @@ export class ParticleRenderer {
   setParticleCount(count: number) {
     this.particleCount = count;
     this.initParticles();
+  }
+
+  setQualityProfile(profile: QualityProfile) {
+    const target = profile.level === "low"
+      ? Math.min(profile.maxParticles, 1200)
+      : Math.min(profile.maxParticles, 4000);
+    this.setParticleCount(target);
   }
 
   setTurbulence(amount: number) {

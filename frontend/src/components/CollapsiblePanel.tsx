@@ -32,29 +32,34 @@ export const CollapsiblePanel: React.FC<CollapsiblePanelProps> = ({
   }, []);
 
   const getPositionStyles = (): Record<string, React.CSSProperties> => {
+    // Calculate safe bottom offset to avoid audio player (80px height + padding)
+    const audioPlayerHeight = 80;
+    const safeBottomOffset = audioPlayerHeight + 20;
+    
     if (isMobile) {
       // Mobile: Use full width and stack to prevent overlap
       const baseStyle = {
         left: '10px',
         right: '10px',
         width: 'calc(100vw - 20px)',
+        maxWidth: 'calc(100vw - 20px)',
       };
       
       return {
         'top-left': { ...baseStyle, top: '10px', zIndex: 1002 },
         'top-right': { ...baseStyle, top: '70px', zIndex: 1001 }, // Offset below top-left
-        'bottom-left': { ...baseStyle, bottom: '10px', zIndex: 1002 },
-        'bottom-right': { ...baseStyle, bottom: '70px', zIndex: 1001 }, // Offset above bottom-left
-        'bottom-center': { ...baseStyle, bottom: '130px', transform: 'none', zIndex: 1000 }, // Further offset
+        'bottom-left': { ...baseStyle, bottom: `${safeBottomOffset + 10}px`, zIndex: 1002 },
+        'bottom-right': { ...baseStyle, bottom: `${safeBottomOffset + 70}px`, zIndex: 1001 }, // Offset above bottom-left
+        'bottom-center': { ...baseStyle, bottom: `${safeBottomOffset + 130}px`, transform: 'none', zIndex: 1000 }, // Further offset
       };
     }
-    // Desktop: Original positioning with proper z-index
+    // Desktop: Original positioning with proper z-index, accounting for audio player
     return {
       'top-left': { top: '20px', left: '20px', zIndex: 1002 },
       'top-right': { top: '20px', right: '20px', zIndex: 1001 },
-      'bottom-left': { bottom: '20px', left: '20px', zIndex: 1002 },
-      'bottom-right': { bottom: '20px', right: '20px', zIndex: 1001 },
-      'bottom-center': { bottom: '20px', left: '50%', transform: 'translateX(-50%)', zIndex: 1000 },
+      'bottom-left': { bottom: `${safeBottomOffset}px`, left: '20px', zIndex: 1002 },
+      'bottom-right': { bottom: `${safeBottomOffset}px`, right: '20px', zIndex: 1001 },
+      'bottom-center': { bottom: `${safeBottomOffset}px`, left: '50%', transform: 'translateX(-50%)', zIndex: 1000 },
     };
   };
 
@@ -92,6 +97,11 @@ export const CollapsiblePanel: React.FC<CollapsiblePanelProps> = ({
         maxWidth: isMobile ? 'calc(100vw - 20px)' : 'calc(100vw - 40px)',
         transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
         pointerEvents: 'auto',
+        // Ensure panels don't overflow viewport
+        maxHeight: isMobile ? 'calc(100vh - 20px)' : 'calc(100vh - 40px)',
+        overflow: 'hidden',
+        // Scale with zoom
+        transformOrigin: position.includes('top') ? 'top' : 'bottom',
       }}
     >
       {/* Collapsed Header */}

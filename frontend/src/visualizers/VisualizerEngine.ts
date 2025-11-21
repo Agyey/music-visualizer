@@ -5,6 +5,7 @@ import { ParticleRenderer } from './ParticleRenderer';
 import { ParticleRendererWebGL } from './ParticleRendererWebGL';
 import { ThreeDRenderer } from './ThreeDRenderer';
 import { VisualizerMode } from '../types/timeline';
+import { VisualizerQualityManager, QualityProfile } from './VisualizerQualityManager';
 
 export class VisualizerEngine {
   private mode: VisualizerMode = "geometric";
@@ -18,23 +19,64 @@ export class VisualizerEngine {
   private transitionStartTime: number = 0;
   private transitionDuration: number = 1000; // 1 second
   private useWebGLParticles: boolean = true;
+  private qualityManager: VisualizerQualityManager;
+  private currentQualityProfile: QualityProfile;
 
   constructor(canvas: HTMLCanvasElement, analysis: ExtendedAudioAnalysisResponse | null) {
     this.canvas = canvas;
+    this.qualityManager = new VisualizerQualityManager();
+    this.currentQualityProfile = this.qualityManager.getProfile();
+    
+    // Listen for quality changes
+    this.qualityManager.onQualityChange((profile) => {
+      this.currentQualityProfile = profile;
+      this.updateRenderersQuality(profile);
+    });
+    
     this.geometricRenderer = new GeometricRenderer(canvas, analysis);
     this.shaderRenderer = new PsychedelicRenderer(canvas, analysis);
     
-    // Try WebGL particles first, fallback to canvas
-    try {
-      this.particleRenderer = new ParticleRendererWebGL(canvas, analysis);
-      this.useWebGLParticles = true;
-    } catch (e) {
-      console.warn('WebGL particles not available, using canvas fallback');
+    // Try WebGL particles first, fallback to canvas based on quality
+    if (this.currentQualityProfile.allowWebGL) {
+      try {
+        this.particleRenderer = new ParticleRendererWebGL(canvas, analysis);
+        this.particleRenderer.setQualityProfile(this.currentQualityProfile);
+        this.useWebGLParticles = true;
+      } catch (e) {
+        console.warn('WebGL particles not available, using canvas fallback');
+        this.particleRenderer = new ParticleRenderer(canvas, analysis);
+        this.particleRenderer.setQualityProfile(this.currentQualityProfile);
+        this.useWebGLParticles = false;
+      }
+    } else {
       this.particleRenderer = new ParticleRenderer(canvas, analysis);
+      this.particleRenderer.setQualityProfile(this.currentQualityProfile);
       this.useWebGLParticles = false;
     }
     
     this.threeDRenderer = new ThreeDRenderer(canvas, analysis);
+    this.threeDRenderer.setQualityProfile(this.currentQualityProfile);
+    
+    // Set initial quality on all renderers
+    this.shaderRenderer.setQualityProfile(this.currentQualityProfile);
+  }
+  
+  private updateRenderersQuality(profile: QualityProfile) {
+    if (this.particleRenderer instanceof ParticleRendererWebGL) {
+      this.particleRenderer.setQualityProfile(profile);
+    } else if (this.particleRenderer instanceof ParticleRenderer) {
+      this.particleRenderer.setQualityProfile(profile);
+    }
+    this.shaderRenderer.setQualityProfile(profile);
+    this.threeDRenderer.setQualityProfile(profile);
+  }
+  
+  getQualityManager(): VisualizerQualityManager {
+    return this.qualityManager;
+  }
+  
+  getQualityProfile(): QualityProfile {
+    return this.currentQualityProfile;
   }
 
   setMode(mode: VisualizerMode) {
@@ -83,6 +125,9 @@ export class VisualizerEngine {
 
   render(time: number) {
     const now = performance.now();
+    
+    // Register frame for FPS tracking and quality adjustment
+    this.qualityManager.registerFrame(now);
     
     // Update transition progress
     if (this.transitionTarget) {
@@ -157,12 +202,22 @@ export class VisualizerEngine {
   }
 
   resize(width: number, height: number) {
-    this.canvas.width = width;
-    this.canvas.height = height;
-    this.geometricRenderer.resize(width, height);
-    this.shaderRenderer.resize(width, height);
-    this.particleRenderer.resize(width, height);
-    this.threeDRenderer.resize(width, height);
+    const profile = this.currentQualityProfile;
+    const scale = profile.internalResolutionScale;
+    const renderWidth = Math.floor(width * scale);
+    const renderHeight = Math.floor(height * scale);
+    
+    this.canvas.width = renderWidth;
+    this.canvas.height = renderHeight;
+    
+    // Set canvas display size to full resolution
+    this.canvas.style.width = `${width}px`;
+    this.canvas.style.height = `${height}px`;
+    
+    this.geometricRenderer.resize(renderWidth, renderHeight);
+    this.shaderRenderer.resize(renderWidth, renderHeight, profile);
+    this.particleRenderer.resize(renderWidth, renderHeight);
+    this.threeDRenderer.resize(renderWidth, renderHeight, profile);
   }
 
   // Get renderer for UI controls

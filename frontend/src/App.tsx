@@ -10,6 +10,7 @@ import { UserAuth } from './components/UserAuth';
 import { UploadHistory } from './components/UploadHistory';
 import { ExtendedAudioAnalysisResponse, VisualizerMode } from './types/timeline';
 import { VisualizerEngine } from './visualizers/VisualizerEngine';
+import { QualityIndicator } from './components/QualityIndicator';
 
 interface User {
   id: string;
@@ -118,9 +119,26 @@ function App() {
   const handleEngineReady = (eng: VisualizerEngine) => {
     setEngine(eng);
   };
+  
+  const handleQualityOverride = (level: "low" | "medium" | "high" | null) => {
+    if (engine) {
+      engine.getQualityManager().setManualOverride(level);
+    }
+  };
 
   return (
-    <div style={{ position: 'relative', width: '100vw', height: '100vh', overflow: 'hidden', background: '#000' }}>
+    <div style={{ 
+      position: 'relative', 
+      width: '100vw', 
+      height: '100vh', 
+      overflow: 'hidden', 
+      background: '#000',
+      // Prevent zoom issues
+      touchAction: 'pan-x pan-y',
+      // Ensure proper scaling
+      minWidth: '320px',
+      minHeight: '480px',
+    }}>
       {/* Main Visualizer Canvas */}
       <VisualizerCanvas 
         analysis={analysis} 
@@ -256,23 +274,25 @@ function App() {
         />
       </CollapsiblePanel>
 
-      {/* Audio Player (minimized when panels are collapsed) */}
+      {/* Audio Player - positioned to avoid bottom panels */}
       {audioUrl && !liveStream && (
         <div
           className="audio-player-container"
           style={{
-            position: 'absolute',
-            bottom: '20px',
+            position: 'fixed',
+            bottom: isMobile ? '10px' : '20px',
             left: '50%',
             transform: 'translateX(-50%)',
-            zIndex: 999,
-            width: '90%',
+            zIndex: 998,
+            width: isMobile ? 'calc(100vw - 40px)' : '90%',
             maxWidth: '600px',
-            background: 'rgba(10, 10, 20, 0.9)',
+            background: 'rgba(10, 10, 20, 0.95)',
             backdropFilter: 'blur(10px)',
             padding: '12px',
             borderRadius: '12px',
             border: '1px solid rgba(100, 200, 255, 0.2)',
+            boxShadow: '0 4px 16px rgba(0, 0, 0, 0.4)',
+            pointerEvents: 'auto',
           }}
         >
           <audio
@@ -287,11 +307,19 @@ function App() {
         </div>
       )}
 
+      {/* Quality Indicator */}
+      {engine && (
+        <QualityIndicator
+          level={engine.getQualityProfile().level}
+          onOverride={handleQualityOverride}
+        />
+      )}
+
       {/* Live Mode Indicator */}
       {liveStream && (
         <div
           style={{
-            position: 'absolute',
+            position: 'fixed',
             top: '20px',
             left: '50%',
             transform: 'translateX(-50%)',
@@ -306,6 +334,7 @@ function App() {
             alignItems: 'center',
             gap: '8px',
             boxShadow: '0 4px 16px rgba(255, 68, 68, 0.4)',
+            pointerEvents: 'auto',
           }}
         >
           <span style={{ display: 'inline-block', width: '8px', height: '8px', background: '#fff', borderRadius: '50%', animation: 'pulse 1s infinite' }}></span>

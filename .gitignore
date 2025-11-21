@@ -67,6 +67,7 @@ backend/__pycache__/
 *.tmp
 *.temp
 .cache/
+styles/
 
 # OS
 Thumbs.db
