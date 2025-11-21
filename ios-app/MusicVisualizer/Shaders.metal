@@ -32,7 +32,8 @@ struct VertexOut {
 // Particle compute shader
 kernel void particle_compute(
     device Particle *particles [[buffer(0)]],
-    constant ParticleUniforms &uniforms [[buffer(1)]],
+    constant float2 &resolution [[buffer(1)]],
+    constant ParticleUniforms &uniforms [[buffer(2)]],
     uint id [[thread_position_in_grid]]
 ) {
     Particle p = particles[id];
@@ -70,7 +71,7 @@ kernel void particle_compute(
     // Damping
     p.velocity *= 0.98;
     
-    // Wrap around edges
+    // Wrap around edges (position is in 0-1 space)
     if (p.position.x < 0.0) p.position.x = 1.0;
     if (p.position.x > 1.0) p.position.x = 0.0;
     if (p.position.y < 0.0) p.position.y = 1.0;
@@ -101,13 +102,21 @@ kernel void particle_compute(
 // Vertex shader for particles
 vertex VertexOut vertex_main(
     device Particle *particles [[buffer(0)]],
+    constant float2 &resolution [[buffer(1)]],
     uint vid [[vertex_id]]
 ) {
     Particle p = particles[vid];
     
     VertexOut out;
-    out.position = float4(p.position * 2.0 - 1.0, 0.0, 1.0);
-    out.position.y = -out.position.y; // Flip Y for Metal coordinate system
+    // Convert from 0-1 space to NDC (-1 to 1)
+    // Metal coordinate system: origin at top-left, Y down
+    float2 screenPos = p.position * resolution;
+    out.position = float4(
+        (screenPos.x / resolution.x) * 2.0 - 1.0,
+        1.0 - (screenPos.y / resolution.y) * 2.0, // Flip Y
+        0.0,
+        1.0
+    );
     out.color = p.color;
     out.life = p.life;
     out.pointSize = 4.0 + p.life * 4.0;
@@ -137,13 +146,17 @@ kernel void fractal_compute(
     constant ParticleUniforms &uniforms [[buffer(0)]],
     uint2 gid [[thread_position_in_grid]]
 ) {
+    if (gid.x >= output.get_width() || gid.y >= output.get_height()) {
+        return;
+    }
+    
     float2 uv = float2(gid) / float2(output.get_width(), output.get_height());
     uv = uv * 2.0 - 1.0;
-    uv.x *= float(output.get_width()) / float(output.get_height());
+    float aspect = float(output.get_width()) / float(output.get_height());
+    uv.x *= aspect;
     
-    // Mandelbrot set
-    float2 c = uv * 2.0 - float2(0.5, 0.0);
-    c *= (1.0 + uniforms.bass * 2.0);
+    // Mandelbrot set with audio-reactive zoom
+    float2 c = uv * (0.5 + uniforms.bass * 1.5) - float2(0.5 + sin(uniforms.time * 0.1) * 0.2, 0.0);
     
     float2 z = float2(0.0);
     float iterations = 0.0;
@@ -157,15 +170,36 @@ kernel void fractal_compute(
     
     float value = iterations / maxIter;
     
-    // Color mapping
+    // Color mapping with audio reactivity
     float3 color = float3(
-        0.5 + sin(value * 10.0 + uniforms.time) * 0.5,
-        0.5 + cos(value * 8.0 + uniforms.time) * 0.5,
-        0.5 + sin(value * 12.0 + uniforms.time * 1.5) * 0.5
+        0.3 + sin(value * 10.0 + uniforms.time + uniforms.bass * 2.0) * 0.4,
+        0.3 + cos(value * 8.0 + uniforms.time * 1.2 + uniforms.mid * 2.0) * 0.4,
+        0.3 + sin(value * 12.0 + uniforms.time * 1.5 + uniforms.treble * 2.0) * 0.4
     );
     
-    color *= (1.0 + uniforms.beatPulse * 0.5);
+    color *= (0.7 + uniforms.energy * 0.3 + uniforms.beatPulse * 0.3);
+    color = saturate(color);
     
     output.write(float4(color, 1.0), gid);
+}
+
+// Fullscreen vertex shader
+vertex float4 fullscreen_vertex(uint vid [[vertex_id]]) {
+    float2 positions[4] = {
+        float2(-1.0, -1.0),
+        float2( 1.0, -1.0),
+        float2(-1.0,  1.0),
+        float2( 1.0,  1.0)
+    };
+    return float4(positions[vid], 0.0, 1.0);
+}
+
+// Fullscreen fragment shader
+fragment float4 fullscreen_fragment(
+    float4 position [[position]],
+    texture2d<float> tex [[texture(0)]]
+) {
+    constexpr sampler s(min_filter::linear, mag_filter::linear);
+    return tex.sample(s, position.xy / float2(tex.get_width(), tex.get_height()));
 }
 

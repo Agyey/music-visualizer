@@ -13,6 +13,8 @@ class VisualizerEngine: NSObject, ObservableObject {
     private var commandQueue: MTLCommandQueue?
     private var renderPipelineState: MTLRenderPipelineState?
     private var computePipelineState: MTLComputePipelineState?
+    private var fractalComputePipelineState: MTLComputePipelineState?
+    private var diffusionRenderPipelineState: MTLRenderPipelineState?
     
     private var audioManager: AudioManager?
     private var diffusionModel = DiffusionModel()
@@ -20,6 +22,7 @@ class VisualizerEngine: NSObject, ObservableObject {
     
     private var frameCount: UInt64 = 0
     private var lastFrameTime: CFTimeInterval = 0
+    private var viewSize: CGSize = .zero
     
     // Particle system
     private var particleBuffer: MTLBuffer?
@@ -28,6 +31,10 @@ class VisualizerEngine: NSObject, ObservableObject {
     // Diffusion state
     private var currentDiffusionImage: CGImage?
     private var isGeneratingDiffusion = false
+    private var diffusionTexture: MTLTexture?
+    
+    // Fractal state
+    private var fractalTexture: MTLTexture?
     
     func setupMetal(view: MTKView) {
         guard let device = MTLCreateSystemDefaultDevice() else {
@@ -58,6 +65,8 @@ class VisualizerEngine: NSObject, ObservableObject {
         guard let device = device else { return }
         
         let library = device.makeDefaultLibrary()
+        
+        // Particle pipeline
         let vertexFunction = library?.makeFunction(name: "vertex_main")
         let fragmentFunction = library?.makeFunction(name: "fragment_main")
         
@@ -78,19 +87,58 @@ class VisualizerEngine: NSObject, ObservableObject {
         } catch {
             print("❌ Failed to create render pipeline: \(error)")
         }
+        
+        // Diffusion/Fullscreen pipeline
+        let fullscreenVertex = library?.makeFunction(name: "fullscreen_vertex")
+        let fullscreenFragment = library?.makeFunction(name: "fullscreen_fragment")
+        
+        let fullscreenDescriptor = MTLRenderPipelineDescriptor()
+        fullscreenDescriptor.vertexFunction = fullscreenVertex
+        fullscreenDescriptor.fragmentFunction = fullscreenFragment
+        fullscreenDescriptor.colorAttachments[0].pixelFormat = .bgra8Unorm
+        
+        do {
+            diffusionRenderPipelineState = try device.makeRenderPipelineState(descriptor: fullscreenDescriptor)
+        } catch {
+            print("⚠️ Fullscreen pipeline not available, using fallback")
+        }
     }
     
     private func setupComputePipeline() {
         guard let device = device else { return }
         
         let library = device.makeDefaultLibrary()
-        let computeFunction = library?.makeFunction(name: "particle_compute")
         
-        do {
-            computePipelineState = try device.makeComputePipelineState(function: computeFunction!)
-        } catch {
-            print("⚠️ Compute shader not found, using CPU fallback")
+        // Particle compute
+        if let computeFunction = library?.makeFunction(name: "particle_compute") {
+            do {
+                computePipelineState = try device.makeComputePipelineState(function: computeFunction)
+            } catch {
+                print("⚠️ Particle compute shader not available")
+            }
         }
+        
+        // Fractal compute
+        if let fractalFunction = library?.makeFunction(name: "fractal_compute") {
+            do {
+                fractalComputePipelineState = try device.makeComputePipelineState(function: fractalFunction)
+            } catch {
+                print("⚠️ Fractal compute shader not available")
+            }
+        }
+    }
+    
+    private func setupFractalTexture(size: CGSize) {
+        guard let device = device else { return }
+        
+        let textureDescriptor = MTLTextureDescriptor.texture2DDescriptor(
+            pixelFormat: .bgra8Unorm,
+            width: Int(size.width),
+            height: Int(size.height),
+            mipmapped: false
+        )
+        textureDescriptor.usage = [.shaderWrite, .shaderRead]
+        fractalTexture = device.makeTexture(descriptor: textureDescriptor)
     }
     
     private func setupParticles() {
@@ -169,7 +217,11 @@ class VisualizerEngine: NSObject, ObservableObject {
 
 extension VisualizerEngine: MTKViewDelegate {
     func mtkView(_ view: MTKView, drawableSizeWillChange size: CGSize) {
-        // Handle resize
+        viewSize = size
+        // Recreate fractal texture if needed
+        if size.width > 0 && size.height > 0 {
+            setupFractalTexture(size: size)
+        }
     }
     
     func draw(in view: MTKView) {
@@ -178,6 +230,13 @@ extension VisualizerEngine: MTKViewDelegate {
               let drawable = view.currentDrawable,
               let renderPassDescriptor = view.currentRenderPassDescriptor else {
             return
+        }
+        
+        if viewSize.width == 0 || viewSize.height == 0 {
+            viewSize = view.drawableSize
+            if viewSize.width > 0 && viewSize.height > 0 {
+                setupFractalTexture(size: viewSize)
+            }
         }
         
         let commandBuffer = commandQueue.makeCommandBuffer()
@@ -221,12 +280,54 @@ extension VisualizerEngine: MTKViewDelegate {
         renderPassDescriptor: MTLRenderPassDescriptor,
         drawable: CAMetalDrawable
     ) {
-        // Render diffusion-generated image
-        // This would use a texture from the diffusion model output
-        // For now, render a placeholder
+        // Use fractal compute as fallback for diffusion (procedural generation)
+        guard let fractalTexture = fractalTexture,
+              let fractalCompute = fractalComputePipelineState,
+              let audioManager = audioManager else {
+            // Clear screen if no texture
+            let encoder = commandBuffer.makeRenderCommandEncoder(descriptor: renderPassDescriptor)
+            encoder?.endEncoding()
+            return
+        }
         
-        let encoder = commandBuffer.makeRenderCommandEncoder(descriptor: renderPassDescriptor)
-        encoder?.endEncoding()
+        // Generate fractal pattern
+        let computeEncoder = commandBuffer.makeComputeCommandEncoder()
+        computeEncoder?.setComputePipelineState(fractalCompute)
+        computeEncoder?.setTexture(fractalTexture, index: 0)
+        
+        let features = audioManager.audioFeatures
+        var uniforms = ParticleUniforms(
+            time: Float(frameCount) / 60.0,
+            bass: features.bass,
+            mid: features.mid,
+            treble: features.treble,
+            energy: features.energy,
+            beatPulse: features.beatPulse
+        )
+        let uniformsBuffer = device?.makeBuffer(bytes: &uniforms, length: MemoryLayout<ParticleUniforms>.size, options: [])
+        computeEncoder?.setBuffer(uniformsBuffer, offset: 0, index: 0)
+        
+        let threadgroupSize = MTLSize(width: 16, height: 16, depth: 1)
+        let threadgroupCount = MTLSize(
+            width: (Int(viewSize.width) + 15) / 16,
+            height: (Int(viewSize.height) + 15) / 16,
+            depth: 1
+        )
+        computeEncoder?.dispatchThreadgroups(threadgroupCount, threadsPerThreadgroup: threadgroupSize)
+        computeEncoder?.endEncoding()
+        
+        // Render texture to screen
+        if let renderState = diffusionRenderPipelineState {
+            let encoder = commandBuffer.makeRenderCommandEncoder(descriptor: renderPassDescriptor)
+            encoder?.setRenderPipelineState(renderState)
+            encoder?.setFragmentTexture(fractalTexture, index: 0)
+            encoder?.drawPrimitives(type: .triangleStrip, vertexStart: 0, vertexCount: 4)
+            encoder?.endEncoding()
+        } else {
+            // Fallback: just clear
+            let encoder = commandBuffer.makeRenderCommandEncoder(descriptor: renderPassDescriptor)
+            encoder?.endEncoding()
+        }
     }
     
     private func renderParticleMode(
@@ -246,6 +347,12 @@ extension VisualizerEngine: MTKViewDelegate {
         
         let encoder = commandBuffer.makeRenderCommandEncoder(descriptor: renderPassDescriptor)
         encoder?.setRenderPipelineState(renderPipelineState)
+        
+        // Pass resolution to vertex shader
+        var resolution = SIMD2<Float>(Float(viewSize.width), Float(viewSize.height))
+        let resolutionBuffer = device?.makeBuffer(bytes: &resolution, length: MemoryLayout<SIMD2<Float>>.size, options: [])
+        encoder?.setVertexBuffer(resolutionBuffer, offset: 0, index: 1)
+        
         encoder?.setVertexBuffer(particleBuffer, offset: 0, index: 0)
         encoder?.drawPrimitives(type: .point, vertexStart: 0, vertexCount: particleCount)
         encoder?.endEncoding()
@@ -256,9 +363,51 @@ extension VisualizerEngine: MTKViewDelegate {
         renderPassDescriptor: MTLRenderPassDescriptor,
         drawable: CAMetalDrawable
     ) {
-        // Render fractals using Metal compute shader
-        let encoder = commandBuffer.makeRenderCommandEncoder(descriptor: renderPassDescriptor)
-        encoder?.endEncoding()
+        guard let fractalTexture = fractalTexture,
+              let fractalCompute = fractalComputePipelineState,
+              let audioManager = audioManager else {
+            let encoder = commandBuffer.makeRenderCommandEncoder(descriptor: renderPassDescriptor)
+            encoder?.endEncoding()
+            return
+        }
+        
+        // Generate fractal pattern
+        let computeEncoder = commandBuffer.makeComputeCommandEncoder()
+        computeEncoder?.setComputePipelineState(fractalCompute)
+        computeEncoder?.setTexture(fractalTexture, index: 0)
+        
+        let features = audioManager.audioFeatures
+        var uniforms = ParticleUniforms(
+            time: Float(frameCount) / 60.0,
+            bass: features.bass,
+            mid: features.mid,
+            treble: features.treble,
+            energy: features.energy,
+            beatPulse: features.beatPulse
+        )
+        let uniformsBuffer = device?.makeBuffer(bytes: &uniforms, length: MemoryLayout<ParticleUniforms>.size, options: [])
+        computeEncoder?.setBuffer(uniformsBuffer, offset: 0, index: 0)
+        
+        let threadgroupSize = MTLSize(width: 16, height: 16, depth: 1)
+        let threadgroupCount = MTLSize(
+            width: (Int(viewSize.width) + 15) / 16,
+            height: (Int(viewSize.height) + 15) / 16,
+            depth: 1
+        )
+        computeEncoder?.dispatchThreadgroups(threadgroupCount, threadsPerThreadgroup: threadgroupSize)
+        computeEncoder?.endEncoding()
+        
+        // Render texture to screen
+        if let renderState = diffusionRenderPipelineState {
+            let encoder = commandBuffer.makeRenderCommandEncoder(descriptor: renderPassDescriptor)
+            encoder?.setRenderPipelineState(renderState)
+            encoder?.setFragmentTexture(fractalTexture, index: 0)
+            encoder?.drawPrimitives(type: .triangleStrip, vertexStart: 0, vertexCount: 4)
+            encoder?.endEncoding()
+        } else {
+            let encoder = commandBuffer.makeRenderCommandEncoder(descriptor: renderPassDescriptor)
+            encoder?.endEncoding()
+        }
     }
     
     private func updateParticlesWithCompute(commandBuffer: MTLCommandBuffer) {
@@ -280,8 +429,12 @@ extension VisualizerEngine: MTKViewDelegate {
             beatPulse: features.beatPulse
         )
         
+        var resolution = SIMD2<Float>(Float(viewSize.width), Float(viewSize.height))
+        let resolutionBuffer = device?.makeBuffer(bytes: &resolution, length: MemoryLayout<SIMD2<Float>>.size, options: [])
+        encoder?.setBuffer(resolutionBuffer, offset: 0, index: 1)
+        
         let uniformsBuffer = device?.makeBuffer(bytes: &uniforms, length: MemoryLayout<ParticleUniforms>.size, options: [])
-        encoder?.setBuffer(uniformsBuffer, offset: 0, index: 1)
+        encoder?.setBuffer(uniformsBuffer, offset: 0, index: 2)
         
         let threadgroupSize = MTLSize(width: 256, height: 1, depth: 1)
         let threadgroupCount = MTLSize(width: (particleCount + 255) / 256, height: 1, depth: 1)
