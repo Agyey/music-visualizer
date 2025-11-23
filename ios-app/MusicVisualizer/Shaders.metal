@@ -163,7 +163,7 @@ kernel void fractal_compute(
     
     // Smooth audio-controlled zoom speed
     // Base zoom rate, smoothly modulated by audio
-    float baseZoomRate = 0.12; // Base zoom rate per second
+    float baseZoomRate = 0.4; // Base zoom rate per second (increased for faster zoom)
     
     // Smooth zoom speed control: energy and beat pulse affect zoom speed smoothly
     // Use smoothstep for smooth transitions
