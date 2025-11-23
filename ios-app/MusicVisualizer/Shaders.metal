@@ -147,11 +147,17 @@ fragment float4 fragment_main(
 }
 
 // Mandelbrot distance estimate function (for crisp, SVG-like edges)
-float mandelbrot_distance_estimate(float2 c, int max_iterations, thread float &iterations_out, thread float2 &z_out) {
+struct DistanceResult {
+    float distance;
+    float iterations;
+    float2 z;
+};
+
+DistanceResult mandelbrot_distance_estimate(float2 c, int max_iterations) {
     float2 z = float2(0.0);
     float2 dz = float2(1.0, 0.0); // Derivative of z (starts at 1)
     float z_mag_sq = 0.0;
-    iterations_out = 0.0;
+    float iterations = 0.0;
 
     for (int i = 0; i < max_iterations; i++) {
         z_mag_sq = dot(z, z);
@@ -162,20 +168,29 @@ float mandelbrot_distance_estimate(float2 c, int max_iterations, thread float &i
 
         // Mandelbrot iteration: z = z^2 + c
         z = float2(z.x * z.x - z.y * z.y, 2.0 * z.x * z.y) + c;
-        iterations_out = float(i);
+        iterations = float(i);
     }
-    
-    z_out = z;
+
+    DistanceResult result;
+    result.z = z;
+    result.iterations = iterations;
 
     // If inside the set, distance is 0
-    if (z_mag_sq <= 4.0) return 0.0;
+    if (z_mag_sq <= 4.0) {
+        result.distance = 0.0;
+        return result;
+    }
 
     // Distance estimate formula: d = 0.5 * |z| * log(|z|) / |dz|
     float z_mag = sqrt(z_mag_sq);
     float dz_mag = length(dz);
-    if (dz_mag < 1e-10) return 0.0; // Avoid division by zero
+    if (dz_mag < 1e-10) {
+        result.distance = 0.0;
+        return result;
+    }
     
-    return 0.5 * z_mag * log(z_mag) / dz_mag;
+    result.distance = 0.5 * z_mag * log(z_mag) / dz_mag;
+    return result;
 }
 
 // Fractal compute shader with supersampling for SVG-like rendering
@@ -259,9 +274,10 @@ kernel void fractal_compute(
             int maxIter = int(min(baseIterations + detailBoost + zoomIterations, 800.0));
             
             // Use distance estimation for SVG-like crisp edges
-            float iterations = 0.0;
-            float2 z_final = float2(0.0);
-            float distance = mandelbrot_distance_estimate(c, maxIter, iterations, z_final);
+            DistanceResult distResult = mandelbrot_distance_estimate(c, maxIter);
+            float distance = distResult.distance;
+            float iterations = distResult.iterations;
+            float2 z_final = distResult.z;
             
             // Convert distance to smooth value for coloring
             // Distance is in complex plane units, scale it appropriately
