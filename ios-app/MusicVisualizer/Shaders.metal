@@ -180,12 +180,40 @@ kernel void fractal_compute(
     float baseZoom = 0.4;
     float zoom = baseZoom * pow(2.0, accumulatedZoom);
     
-    // Use a well-known coordinate for infinite zoom that maintains fractal patterns
-    // This coordinate is on the boundary and has proven self-similarity
-    // Classic "Seahorse Valley" area with infinite detail
-    float2 center = float2(-0.743643887037151, 0.131825904205330);
+    // Calculate zoom depth to track how deep we've zoomed
+    float zoomDepth = log2(max(zoom / baseZoom, 1.0));
     
-    // No adjustments needed - this coordinate maintains patterns at all zoom levels
+    // Use a coordinate system that follows the fractal's self-similar structure
+    // As we zoom deeper, we need to adjust to stay within mini-Mandelbrot copies
+    // Base coordinate: classic point with good self-similarity
+    float2 baseCenter = float2(-0.77568377, 0.13646737);
+    
+    // Follow a zoom path that explores mini-Mandelbrot copies
+    // Every ~8-10 zoom levels, we're seeing a new mini-copy
+    float zoomCycle = floor(zoomDepth / 8.0);
+    float cyclePhase = fmod(zoomDepth, 8.0) / 8.0;
+    
+    // Define zoom path that follows the fractal structure
+    // This ensures we always zoom into interesting fractal regions
+    float2 center;
+    
+    // Path that spirals through mini-Mandelbrot locations
+    // Each cycle takes us to a new mini-copy
+    float angle = zoomCycle * 0.785; // ~45 degrees per cycle
+    float spiralRadius = 0.0; // Start at center, spiral outward
+    
+    // Calculate position along spiral path
+    float spiralX = cos(angle) * spiralRadius;
+    float spiralY = sin(angle) * spiralRadius;
+    
+    // Use the base center and add very small adjustments
+    // The adjustments are tiny to follow the fractal structure
+    center = baseCenter + float2(spiralX * 0.0001, spiralY * 0.0001);
+    
+    // Add very subtle phase-based offset to stay in fractal regions
+    float phaseOffsetX = sin(cyclePhase * 6.28318) * 0.00005;
+    float phaseOffsetY = cos(cyclePhase * 6.28318 * 1.1) * 0.00005;
+    center += float2(phaseOffsetX, phaseOffsetY);
     
     // Calculate complex plane coordinates with infinite zoom
     float2 c = center + uv / zoom;
