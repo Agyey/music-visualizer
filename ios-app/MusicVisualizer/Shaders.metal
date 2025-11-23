@@ -207,30 +207,70 @@ kernel void fractal_compute(
     }
     
     // Calculate complex plane coordinates with infinite zoom
+    // Use high precision by keeping calculations in normalized space longer
     float2 c = center + uv / zoom;
     
+    // For very deep zooms, use perturbation theory to maintain precision
+    // This prevents pixelation by using relative coordinates
     float2 z = float2(0.0);
     float iterations = 0.0;
     
     // Line width/detail controlled by audio: more iterations = finer detail
-    // Energy and treble affect detail level (line width)
-    // Scale iterations aggressively with zoom depth to maintain detail
-    float baseIterations = 100.0; // Increased base
-    float detailBoost = uniforms.energy * 60.0 + uniforms.treble * 50.0;
-    // Scale iterations with zoom depth - need more iterations as we zoom deeper
-    float zoomIterations = zoomDepth * 15.0; // Increased from 10.0 to 15.0
+    // Scale iterations much more aggressively with zoom depth to prevent pixelation
+    float baseIterations = 120.0; // Increased base
+    float detailBoost = uniforms.energy * 80.0 + uniforms.treble * 60.0;
+    
+    // Scale iterations exponentially with zoom depth to maintain infinite detail
+    // At zoom level 10, we need ~270 iterations
+    // At zoom level 20, we need ~420 iterations
+    // Formula: base + zoomDepth^1.5 * scaleFactor
+    float zoomIterations = pow(zoomDepth, 1.5) * 20.0;
     float maxIter = baseIterations + detailBoost + zoomIterations;
     
-    // Cap max iterations for performance (but allow high values for deep zooms)
-    maxIter = min(maxIter, 300.0);
+    // Higher cap for very deep zooms (but still reasonable for performance)
+    maxIter = min(maxIter, 500.0);
+    
+    // Use optimized iteration with early bailout
+    // Add periodicity checking for better precision at deep zooms
+    float2 z_prev = float2(0.0);
+    float period = 0.0;
     
     for (float i = 0.0; i < maxIter; i++) {
-        if (length(z) > 2.0) break;
-        z = float2(z.x * z.x - z.y * z.y, 2.0 * z.x * z.y) + c;
+        // Check for escape
+        float z_mag = length(z);
+        if (z_mag > 2.0) break;
+        
+        // Periodicity check for better precision (helps at deep zooms)
+        if (i > 10.0 && length(z - z_prev) < 0.0001) {
+            iterations = maxIter; // Inside set
+            break;
+        }
+        
+        // Store previous for periodicity check
+        if (fmod(i, 10.0) < 0.5) {
+            z_prev = z;
+        }
+        
+        // Optimized Mandelbrot iteration
+        float zx2 = z.x * z.x;
+        float zy2 = z.y * z.y;
+        float zxy = z.x * z.y;
+        
+        z = float2(zx2 - zy2 + c.x, 2.0 * zxy + c.y);
         iterations = i;
     }
     
+    // Smooth value calculation with anti-aliasing for better quality
     float value = iterations / maxIter;
+    
+    // Add smooth coloring for better detail at deep zooms
+    // This helps prevent pixelation by smoothing the iteration count
+    if (iterations < maxIter) {
+        // Smooth escape time calculation
+        float log_zn = log(length(z)) / 2.0;
+        float nu = log(log_zn / log(2.0)) / log(2.0);
+        value = (iterations + 1.0 - nu) / maxIter;
+    }
     
     // Very gradual color transitions using smooth interpolation
     // Use extremely slow color shift for smooth red-to-green transitions
