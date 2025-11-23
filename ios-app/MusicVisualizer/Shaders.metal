@@ -146,7 +146,39 @@ fragment float4 fragment_main(
     return float4(in.color, alpha);
 }
 
-// Fractal compute shader
+// Mandelbrot distance estimate function (for crisp, SVG-like edges)
+float mandelbrot_distance_estimate(float2 c, int max_iterations, thread float &iterations_out, thread float2 &z_out) {
+    float2 z = float2(0.0);
+    float2 dz = float2(1.0, 0.0); // Derivative of z (starts at 1)
+    float z_mag_sq = 0.0;
+    iterations_out = 0.0;
+
+    for (int i = 0; i < max_iterations; i++) {
+        z_mag_sq = dot(z, z);
+        if (z_mag_sq > 4.0) break; // Escaped
+
+        // Update derivative: dz = 2*z*dz + 1
+        dz = 2.0 * float2(z.x * dz.x - z.y * dz.y, z.x * dz.y + z.y * dz.x) + float2(1.0, 0.0);
+
+        // Mandelbrot iteration: z = z^2 + c
+        z = float2(z.x * z.x - z.y * z.y, 2.0 * z.x * z.y) + c;
+        iterations_out = float(i);
+    }
+    
+    z_out = z;
+
+    // If inside the set, distance is 0
+    if (z_mag_sq <= 4.0) return 0.0;
+
+    // Distance estimate formula: d = 0.5 * |z| * log(|z|) / |dz|
+    float z_mag = sqrt(z_mag_sq);
+    float dz_mag = length(dz);
+    if (dz_mag < 1e-10) return 0.0; // Avoid division by zero
+    
+    return 0.5 * z_mag * log(z_mag) / dz_mag;
+}
+
+// Fractal compute shader with supersampling for SVG-like rendering
 kernel void fractal_compute(
     texture2d<float, access::write> output [[texture(0)]],
     constant ParticleUniforms &uniforms [[buffer(0)]],
@@ -156,10 +188,21 @@ kernel void fractal_compute(
         return;
     }
     
-    float2 uv = float2(gid) / float2(output.get_width(), output.get_height());
-    uv = uv * 2.0 - 1.0;
+    // Supersampling: sample multiple points per pixel for anti-aliasing
+    // This creates SVG-like smooth edges
+    const int samplesPerPixel = 4; // 2x2 grid of samples
+    float3 accumulatedColor = float3(0.0);
+    
+    float2 pixelSize = 1.0 / float2(output.get_width(), output.get_height());
     float aspect = float(output.get_width()) / float(output.get_height());
-    uv.x *= aspect;
+    
+    for (int sy = 0; sy < 2; sy++) {
+        for (int sx = 0; sx < 2; sx++) {
+            // Offset within pixel for supersampling
+            float2 offset = (float2(float(sx), float(sy)) - 0.5) * pixelSize * 0.5;
+            float2 uv = (float2(gid) + offset) / float2(output.get_width(), output.get_height());
+            uv = uv * 2.0 - 1.0;
+            uv.x *= aspect;
     
     // Smooth audio-controlled zoom speed
     // Base zoom rate, smoothly modulated by audio
@@ -206,229 +249,120 @@ kernel void fractal_compute(
         );
     }
     
-    // Calculate complex plane coordinates with infinite zoom
-    // Use high precision by keeping calculations in normalized space longer
-    float2 c = center + uv / zoom;
-    
-    // For very deep zooms, use perturbation theory to maintain precision
-    // This prevents pixelation by using relative coordinates
-    float2 z = float2(0.0);
-    float iterations = 0.0;
-    
-    // Line width/detail controlled by audio: more iterations = finer detail
-    // Scale iterations much more aggressively with zoom depth to prevent pixelation
-    float baseIterations = 150.0; // Increased base for better detail
-    float detailBoost = uniforms.energy * 100.0 + uniforms.treble * 80.0;
-    
-    // Scale iterations exponentially with zoom depth to maintain infinite detail
-    // Need more iterations as zoom increases to resolve finer detail
-    // Formula: base + zoomDepth^1.8 * scaleFactor (steeper curve)
-    float zoomIterations = pow(max(zoomDepth, 1.0), 1.8) * 25.0;
-    float maxIter = baseIterations + detailBoost + zoomIterations;
-    
-    // Much higher cap for very deep zooms to prevent pixelation
-    maxIter = min(maxIter, 800.0);
-    
-    // Use optimized iteration with early bailout and better precision
-    // For deep zooms, we need high precision calculations
-    float2 z_prev = float2(0.0);
-    float2 z_prev2 = float2(0.0);
-    float bailout = 4.0; // Escape radius squared
-    
-    for (float i = 0.0; i < maxIter; i++) {
-        // Check for escape (using squared magnitude for efficiency)
-        float z_mag2 = z.x * z.x + z.y * z.y;
-        if (z_mag2 > bailout) {
-            // Calculate smooth iteration count for anti-aliasing
-            float z_mag = sqrt(z_mag2);
-            iterations = i;
-            break;
-        }
-        
-        // Periodicity check for better precision (helps at deep zooms)
-        // Check every 5 iterations to detect cycles
-        if (i > 20.0 && fmod(i, 5.0) < 0.5) {
-            float dist1 = length(z - z_prev);
-            float dist2 = length(z - z_prev2);
-            if (dist1 < 0.00001 && dist2 < 0.00001) {
-                iterations = maxIter; // Inside set (periodic)
-                break;
+            // Calculate complex plane coordinates with infinite zoom
+            float2 c = center + uv / zoom;
+            
+            // Scale iterations exponentially with zoom depth
+            float baseIterations = 150.0;
+            float detailBoost = uniforms.energy * 100.0 + uniforms.treble * 80.0;
+            float zoomIterations = pow(max(zoomDepth, 1.0), 1.8) * 25.0;
+            int maxIter = int(min(baseIterations + detailBoost + zoomIterations, 800.0));
+            
+            // Use distance estimation for SVG-like crisp edges
+            float iterations = 0.0;
+            float2 z_final = float2(0.0);
+            float distance = mandelbrot_distance_estimate(c, maxIter, iterations, z_final);
+            
+            // Convert distance to smooth value for coloring
+            // Distance is in complex plane units, scale it appropriately
+            float pixelSizeInComplexPlane = 1.0 / zoom;
+            float normalizedDistance = distance / max(pixelSizeInComplexPlane, 1e-6);
+            
+            // SVG-like edge: use smoothstep on distance for crisp, anti-aliased edges
+            float edgeThickness = 0.5; // Thickness of the edge in pixels
+            float edgeFactor = 1.0 - smoothstep(0.0, edgeThickness, normalizedDistance);
+            
+            // Smooth iteration count for color mapping
+            float smoothValue = 0.0;
+            if (iterations < float(maxIter)) {
+                float z_mag = length(z_final);
+                if (z_mag > 1.0) {
+                    float log_zn = log(z_mag) / log(2.0);
+                    float nu = log(log_zn) / log(2.0);
+                    smoothValue = iterations + 1.0 - nu;
+                } else {
+                    smoothValue = iterations;
+                }
+            } else {
+                smoothValue = float(maxIter);
             }
-            z_prev2 = z_prev;
-            z_prev = z;
-        } else if (i > 20.0 && fmod(i, 5.0) < 1.0) {
-            z_prev = z;
+            
+            float value = smoothValue / float(maxIter);
+            value = clamp(value, 0.0, 1.0);
+            
+            // SVG-like rendering using distance estimation for crisp edges
+            // Use distance to create smooth, anti-aliased boundaries
+            float edgeThickness = 0.3; // Thickness in pixels (adjustable)
+            float edgeAlpha = 1.0 - smoothstep(0.0, edgeThickness, normalizedDistance);
+            
+            // Rich color palette with very slow hue shift
+            float hueShift = uniforms.time * 0.0002;
+            float hue = fmod(value * 0.3 + hueShift, 1.0);
+            float saturation = 0.7 + uniforms.energy * 0.2;
+            float brightness = 0.6 + uniforms.beatPulse * 0.2;
+            
+            // HSV to RGB conversion
+            float3 sampleColor;
+            float chroma = brightness * saturation;
+            float x = chroma * (1.0 - abs(fmod(hue * 6.0, 2.0) - 1.0));
+            float m = brightness - chroma;
+            
+            if (hue < 0.166) {
+                sampleColor = float3(chroma, x, 0.0) + m;
+            } else if (hue < 0.333) {
+                sampleColor = float3(x, chroma, 0.0) + m;
+            } else if (hue < 0.5) {
+                sampleColor = float3(0.0, chroma, x) + m;
+            } else if (hue < 0.666) {
+                sampleColor = float3(0.0, x, chroma) + m;
+            } else if (hue < 0.833) {
+                sampleColor = float3(x, 0.0, chroma) + m;
+            } else {
+                sampleColor = float3(chroma, 0.0, x) + m;
+            }
+            
+            // Apply edge alpha for SVG-like crisp boundaries
+            sampleColor *= edgeAlpha;
+            
+            // Add gradient bands for depth
+            float bandHue = fmod(smoothValue * 0.05 + hueShift * 2.0, 1.0);
+            float bandChroma = brightness * saturation * 0.8;
+            float bandX = bandChroma * (1.0 - abs(fmod(bandHue * 6.0, 2.0) - 1.0));
+            float bandM = brightness - bandChroma;
+            float3 bandColor;
+            
+            if (bandHue < 0.166) {
+                bandColor = float3(bandChroma, bandX, 0.0) + bandM;
+            } else if (bandHue < 0.333) {
+                bandColor = float3(bandX, bandChroma, 0.0) + bandM;
+            } else if (bandHue < 0.5) {
+                bandColor = float3(0.0, bandChroma, bandX) + bandM;
+            } else if (bandHue < 0.666) {
+                bandColor = float3(0.0, bandX, bandChroma) + bandM;
+            } else if (bandHue < 0.833) {
+                bandColor = float3(bandX, 0.0, bandChroma) + bandM;
+            } else {
+                bandColor = float3(bandChroma, 0.0, bandX) + bandM;
+            }
+            
+            float gradientPos = fract(smoothValue * 0.08);
+            float gradientBand = smoothstep(0.0, 0.4, gradientPos) * (1.0 - smoothstep(0.6, 1.0, gradientPos));
+            sampleColor = mix(sampleColor, bandColor * 0.8, gradientBand * 0.5);
+            
+            // Subtle audio-reactive brightness
+            float finalBrightness = 0.9 + uniforms.energy * 0.1 + uniforms.beatPulse * 0.05;
+            sampleColor *= finalBrightness;
+            sampleColor = pow(sampleColor, 0.9);
+            sampleColor = saturate(sampleColor);
+            
+            accumulatedColor += sampleColor;
         }
-        
-        // Optimized Mandelbrot iteration with better numerical stability
-        float zx2 = z.x * z.x;
-        float zy2 = z.y * z.y;
-        
-        // Check for overflow before computing
-        if (zx2 + zy2 > 1e10) {
-            iterations = i;
-            break;
-        }
-        
-        float zxy = z.x * z.y;
-        z = float2(zx2 - zy2 + c.x, 2.0 * zxy + c.y);
-        iterations = i;
     }
     
-    // SVG-like smooth rendering with distance field approach
-    // Calculate smooth escape time for crisp, vector-like edges
-    float value = 0.0;
-    float smoothValue = 0.0;
+    // Average the supersampled colors for smooth anti-aliasing
+    float3 finalColor = accumulatedColor / float(samplesPerPixel);
     
-    if (iterations < maxIter) {
-        // Enhanced smooth escape time calculation for better anti-aliasing
-        // This prevents pixelation by providing continuous color values
-        float z_mag = length(z);
-        if (z_mag > 1.0) {
-            float log_zn = log(z_mag) / log(2.0);
-            float nu = log(log_zn) / log(2.0);
-            smoothValue = iterations + 1.0 - nu;
-        } else {
-            smoothValue = iterations;
-        }
-        value = smoothValue / maxIter;
-        
-        // Clamp to prevent artifacts
-        value = clamp(value, 0.0, 1.0);
-    } else {
-        // Inside the set - use periodicity or max iterations
-        value = 1.0;
-        smoothValue = maxIter;
-    }
-    
-    // Create SVG-like crisp edges using smoothstep
-    // This creates vector-like sharp boundaries
-    float edgeSharpness = 0.02; // How sharp the edges are (smaller = sharper)
-    float fractalEdge = smoothstep(0.0, edgeSharpness, 1.0 - value);
-    
-    // For SVG-like appearance, we want crisp lines with smooth gradients
-    // Use the smooth value to create gradient bands
-    float bandedValue = fract(smoothValue * 0.1); // Create bands
-    float bandEdge = smoothstep(0.0, 0.1, bandedValue) * (1.0 - smoothstep(0.9, 1.0, bandedValue));
-    
-    // Combine for SVG-like appearance
-    value = mix(fractalEdge, bandEdge, 0.3);
-    
-    // Rich color palette with very slow hue shift
-    // Hue shifts gradually as the song progresses
-    float hueShift = uniforms.time * 0.0002; // Very slow hue rotation (full cycle takes ~1.4 hours)
-    
-    // Convert to HSV for smooth hue rotation
-    // Use the iteration value to create color variation across the fractal
-    float hue = fmod(value * 0.3 + hueShift, 1.0); // Map value to hue range, add slow shift
-    float saturation = 0.7 + uniforms.energy * 0.2; // Rich saturation
-    float brightness = 0.6 + uniforms.beatPulse * 0.2;
-    
-    // HSV to RGB conversion for smooth color transitions
-    float3 baseColor;
-    float chroma = brightness * saturation;
-    float x = chroma * (1.0 - abs(fmod(hue * 6.0, 2.0) - 1.0));
-    float m = brightness - chroma;
-    
-    if (hue < 0.166) {
-        baseColor = float3(chroma, x, 0.0) + m; // Red to Yellow
-    } else if (hue < 0.333) {
-        baseColor = float3(x, chroma, 0.0) + m; // Yellow to Green
-    } else if (hue < 0.5) {
-        baseColor = float3(0.0, chroma, x) + m; // Green to Cyan
-    } else if (hue < 0.666) {
-        baseColor = float3(0.0, x, chroma) + m; // Cyan to Blue
-    } else if (hue < 0.833) {
-        baseColor = float3(x, 0.0, chroma) + m; // Blue to Magenta
-    } else {
-        baseColor = float3(chroma, 0.0, x) + m; // Magenta to Red
-    }
-    
-    // Add variation based on iteration bands for richer palette
-    float bandHue = fmod(smoothValue * 0.05 + hueShift * 2.0, 1.0);
-    float3 bandColor;
-    float bandChroma = brightness * saturation * 0.8;
-    float bandX = bandChroma * (1.0 - abs(fmod(bandHue * 6.0, 2.0) - 1.0));
-    float bandM = brightness - bandChroma;
-    
-    if (bandHue < 0.166) {
-        bandColor = float3(bandChroma, bandX, 0.0) + bandM;
-    } else if (bandHue < 0.333) {
-        bandColor = float3(bandX, bandChroma, 0.0) + bandM;
-    } else if (bandHue < 0.5) {
-        bandColor = float3(0.0, bandChroma, bandX) + bandM;
-    } else if (bandHue < 0.666) {
-        bandColor = float3(0.0, bandX, bandChroma) + bandM;
-    } else if (bandHue < 0.833) {
-        bandColor = float3(bandX, 0.0, bandChroma) + bandM;
-    } else {
-        bandColor = float3(bandChroma, 0.0, bandX) + bandM;
-    }
-    
-    // SVG-like rendering: crisp edges with smooth color gradients
-    // Create sharp boundaries like vector graphics
-    float edgeThreshold = 0.5;
-    float edgeWidth = 0.05; // Thin, crisp edges
-    
-    // Calculate distance from fractal boundary for smooth edges
-    float distFromEdge = abs(value - edgeThreshold);
-    float edgeFactor = 1.0 - smoothstep(0.0, edgeWidth, distFromEdge);
-    
-    // Create smooth color gradient based on iteration bands
-    // Use the smooth value for gradient calculation
-    float gradientPos = fract(smoothValue * 0.08); // Slower gradient for smoother transitions
-    float gradientBand = smoothstep(0.0, 0.4, gradientPos) * (1.0 - smoothstep(0.6, 1.0, gradientPos));
-    
-    // Rich palette application with smooth gradients
-    // Create depth with multiple color layers
-    float3 insideColor = baseColor * 0.4; // Darker inside
-    float3 outsideColor = baseColor; // Full color outside
-    float3 bandLayer = bandColor * 0.8; // Band color layer
-    
-    // Smooth transition between inside and outside
-    float3 color = mix(insideColor, outsideColor, smoothstep(0.3, 0.7, value));
-    
-    // Add band layer for richer palette
-    color = mix(color, bandLayer, gradientBand * 0.5);
-    
-    // Add subtle audio-reactive color shifts (very subtle)
-    float audioHueShift = (uniforms.bass * 0.05 + uniforms.mid * 0.03 + uniforms.treble * 0.02);
-    float3 audioColor = baseColor;
-    // Apply tiny hue shift based on audio
-    float audioHue = fmod(hue + audioHueShift, 1.0);
-    float audioChroma = brightness * saturation;
-    float audioX = audioChroma * (1.0 - abs(fmod(audioHue * 6.0, 2.0) - 1.0));
-    float audioM = brightness - audioChroma;
-    
-    if (audioHue < 0.166) {
-        audioColor = float3(audioChroma, audioX, 0.0) + audioM;
-    } else if (audioHue < 0.333) {
-        audioColor = float3(audioX, audioChroma, 0.0) + audioM;
-    } else if (audioHue < 0.5) {
-        audioColor = float3(0.0, audioChroma, audioX) + audioM;
-    } else if (audioHue < 0.666) {
-        audioColor = float3(0.0, audioX, audioChroma) + audioM;
-    } else if (audioHue < 0.833) {
-        audioColor = float3(audioX, 0.0, audioChroma) + audioM;
-    } else {
-        audioColor = float3(audioChroma, 0.0, audioX) + audioM;
-    }
-    
-    color = mix(color, audioColor, 0.15); // Very subtle audio color influence
-    
-    // Apply crisp edge (like SVG stroke) with palette color
-    float edgeBrightness = 1.2;
-    color = mix(color, baseColor * edgeBrightness, edgeFactor * 0.2);
-    
-    // Subtle brightness variation
-    float finalBrightness = 0.9 + uniforms.energy * 0.1 + uniforms.beatPulse * 0.05;
-    color *= finalBrightness;
-    
-    // Enhance colors for rich palette
-    color = pow(color, 0.9);
-    color = saturate(color);
-    
-    output.write(float4(color, 1.0), gid);
+    output.write(float4(finalColor, 1.0), gid);
 }
 
 // Diffusion/Procedural compute shader (smoother, more organic)
