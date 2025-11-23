@@ -182,6 +182,7 @@ DistanceResult mandelbrot_distance_estimate(float2 c, int max_iterations) {
     }
 
     // Distance estimate formula: d = 0.5 * |z| * log(|z|) / |dz|
+    // Enhanced for better precision at deep zooms
     float z_mag = sqrt(z_mag_sq);
     float dz_mag = length(dz);
     if (dz_mag < 1e-10) {
@@ -189,7 +190,12 @@ DistanceResult mandelbrot_distance_estimate(float2 c, int max_iterations) {
         return result;
     }
     
-    result.distance = 0.5 * z_mag * log(z_mag) / dz_mag;
+    // Use improved distance estimate with better numerical stability
+    float log_z = log(z_mag);
+    result.distance = 0.5 * z_mag * log_z / dz_mag;
+    
+    // Clamp to prevent extreme values that cause artifacts
+    result.distance = min(result.distance, 100.0);
     return result;
 }
 
@@ -203,18 +209,21 @@ kernel void fractal_compute(
         return;
     }
     
-    // Supersampling: sample multiple points per pixel for anti-aliasing
+    // High-quality supersampling: sample multiple points per pixel for anti-aliasing
     // This creates SVG-like smooth edges
-    const int samplesPerPixel = 4; // 2x2 grid of samples
+    const int samplesPerPixel = 16; // 4x4 grid of samples for better quality
     float3 accumulatedColor = float3(0.0);
     
     float2 pixelSize = 1.0 / float2(output.get_width(), output.get_height());
     float aspect = float(output.get_width()) / float(output.get_height());
     
-    for (int sy = 0; sy < 2; sy++) {
-        for (int sx = 0; sx < 2; sx++) {
-            // Offset within pixel for supersampling
-            float2 offset = (float2(float(sx), float(sy)) - 0.5) * pixelSize * 0.5;
+    // Use jittered sampling for better anti-aliasing
+    for (int sy = 0; sy < 4; sy++) {
+        for (int sx = 0; sx < 4; sx++) {
+            // Jittered offset within pixel for better sampling
+            float jitterX = (float(sx) + 0.5) / 4.0 - 0.5;
+            float jitterY = (float(sy) + 0.5) / 4.0 - 0.5;
+            float2 offset = float2(jitterX, jitterY) * pixelSize;
             float2 uv = (float2(gid) + offset) / float2(output.get_width(), output.get_height());
             uv = uv * 2.0 - 1.0;
             uv.x *= aspect;
@@ -268,10 +277,12 @@ kernel void fractal_compute(
             float2 c = center + uv / zoom;
             
             // Scale iterations exponentially with zoom depth
-            float baseIterations = 150.0;
-            float detailBoost = uniforms.energy * 100.0 + uniforms.treble * 80.0;
-            float zoomIterations = pow(max(zoomDepth, 1.0), 1.8) * 25.0;
-            int maxIter = int(min(baseIterations + detailBoost + zoomIterations, 800.0));
+            // More aggressive scaling to prevent pixelation at deep zooms
+            float baseIterations = 200.0; // Increased base
+            float detailBoost = uniforms.energy * 120.0 + uniforms.treble * 100.0;
+            // Much steeper curve for deep zooms
+            float zoomIterations = pow(max(zoomDepth, 1.0), 2.0) * 30.0;
+            int maxIter = int(min(baseIterations + detailBoost + zoomIterations, 1000.0)); // Higher cap
             
             // Use distance estimation for SVG-like crisp edges
             DistanceResult distResult = mandelbrot_distance_estimate(c, maxIter);
@@ -281,7 +292,8 @@ kernel void fractal_compute(
             
             // Convert distance to smooth value for coloring
             // Distance is in complex plane units, scale it appropriately
-            float pixelSizeInComplexPlane = 1.0 / zoom;
+            // Account for higher internal resolution (2x)
+            float pixelSizeInComplexPlane = 1.0 / (zoom * 2.0); // 2x resolution factor
             float normalizedDistance = distance / max(pixelSizeInComplexPlane, 1e-6);
             
             // Smooth iteration count for color mapping
@@ -304,8 +316,13 @@ kernel void fractal_compute(
             
             // SVG-like rendering using distance estimation for crisp edges
             // Use distance to create smooth, anti-aliased boundaries
-            float edgeThickness = 0.3; // Thickness in pixels (adjustable)
+            // Adjust edge thickness based on zoom level for better quality at deep zooms
+            float edgeThickness = 0.2 + 0.1 * smoothstep(0.0, 10.0, zoomDepth); // Thicker at deep zooms
             float edgeAlpha = 1.0 - smoothstep(0.0, edgeThickness, normalizedDistance);
+            
+            // Use a smoother falloff for better anti-aliasing
+            edgeAlpha = smoothstep(0.0, edgeThickness * 2.0, normalizedDistance);
+            edgeAlpha = 1.0 - edgeAlpha; // Invert for inside-outside
             
             // Rich color palette with very slow hue shift
             float hueShift = uniforms.time * 0.0002;

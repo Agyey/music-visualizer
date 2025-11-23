@@ -141,10 +141,13 @@ class VisualizerEngine: NSObject, ObservableObject {
     private func setupFractalTexture(size: CGSize) {
         guard let device = device else { return }
         
+        // Render at 2x resolution for better quality (supersampling)
+        // This helps eliminate pixelation at deep zooms
+        let scaleFactor: CGFloat = 2.0
         let textureDescriptor = MTLTextureDescriptor.texture2DDescriptor(
             pixelFormat: .bgra8Unorm,
-            width: Int(size.width),
-            height: Int(size.height),
+            width: Int(size.width * scaleFactor),
+            height: Int(size.height * scaleFactor),
             mipmapped: false
         )
         textureDescriptor.usage = [.shaderWrite, .shaderRead]
