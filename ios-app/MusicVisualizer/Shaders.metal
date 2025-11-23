@@ -211,48 +211,49 @@ kernel void fractal_compute(
     
     float value = iterations / maxIter;
     
-    // Enhanced gradient color mapping with smooth transitions
+    // Enhanced gradient color mapping with very gradual transitions
     // Use smoothstep for gradient-like color bands
-    float colorShift = uniforms.time * 0.01; // Very slow, smooth color rotation (reduced from 0.05)
+    float colorShift = uniforms.time * 0.002; // Very slow, gradual color rotation
     
     // Create gradient bands using smoothstep
     float band1 = smoothstep(0.0, 0.3, value) * (1.0 - smoothstep(0.3, 0.6, value));
     float band2 = smoothstep(0.3, 0.6, value) * (1.0 - smoothstep(0.6, 0.9, value));
     float band3 = smoothstep(0.6, 1.0, value);
     
-    // Gradient color stops with audio reactivity
+    // Gradient color stops with subtle audio reactivity
+    // Reduced audio multipliers for more gradual changes
     float3 color1 = float3(
-        0.1 + sin(colorShift + uniforms.bass * 2.0) * 0.2,
-        0.2 + cos(colorShift * 1.2 + uniforms.mid * 2.0) * 0.3,
-        0.4 + sin(colorShift * 1.5 + uniforms.treble * 2.0) * 0.3
+        0.1 + sin(colorShift + uniforms.bass * 0.5) * 0.2,
+        0.2 + cos(colorShift * 1.2 + uniforms.mid * 0.5) * 0.3,
+        0.4 + sin(colorShift * 1.5 + uniforms.treble * 0.5) * 0.3
     );
     
     float3 color2 = float3(
-        0.3 + sin(colorShift * 1.1 + uniforms.bass * 2.5) * 0.4,
-        0.1 + cos(colorShift * 1.3 + uniforms.mid * 2.5) * 0.2,
-        0.5 + sin(colorShift * 1.6 + uniforms.treble * 2.5) * 0.4
+        0.3 + sin(colorShift * 1.1 + uniforms.bass * 0.6) * 0.4,
+        0.1 + cos(colorShift * 1.3 + uniforms.mid * 0.6) * 0.2,
+        0.5 + sin(colorShift * 1.6 + uniforms.treble * 0.6) * 0.4
     );
     
     float3 color3 = float3(
-        0.5 + sin(colorShift * 1.2 + uniforms.bass * 3.0) * 0.4,
-        0.4 + cos(colorShift * 1.4 + uniforms.mid * 3.0) * 0.4,
-        0.2 + sin(colorShift * 1.7 + uniforms.treble * 3.0) * 0.3
+        0.5 + sin(colorShift * 1.2 + uniforms.bass * 0.7) * 0.4,
+        0.4 + cos(colorShift * 1.4 + uniforms.mid * 0.7) * 0.4,
+        0.2 + sin(colorShift * 1.7 + uniforms.treble * 0.7) * 0.3
     );
     
     // Blend gradient colors
     float3 color = color1 * band1 + color2 * band2 + color3 * band3;
     
-    // Add smooth iteration-based gradient overlay
+    // Add smooth iteration-based gradient overlay (slower)
     float iterGradient = smoothstep(0.0, 1.0, value);
     float3 gradientOverlay = float3(
-        0.2 + sin(value * 15.0 + colorShift) * 0.15,
-        0.2 + cos(value * 12.0 + colorShift * 1.1) * 0.15,
-        0.3 + sin(value * 18.0 + colorShift * 1.2) * 0.15
+        0.2 + sin(value * 15.0 + colorShift * 0.5) * 0.15,
+        0.2 + cos(value * 12.0 + colorShift * 0.6) * 0.15,
+        0.3 + sin(value * 18.0 + colorShift * 0.7) * 0.15
     );
     color = mix(color, gradientOverlay, 0.3);
     
-    // Smooth brightness variation with energy and beat
-    float brightness = 0.8 + uniforms.energy * 0.25 + uniforms.beatPulse * 0.2;
+    // Very gradual brightness variation with energy and beat
+    float brightness = 0.8 + uniforms.energy * 0.15 + uniforms.beatPulse * 0.1;
     color *= brightness;
     
     // Enhance contrast for richer gradients
