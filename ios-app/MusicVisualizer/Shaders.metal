@@ -260,17 +260,35 @@ kernel void fractal_compute(
         iterations = i;
     }
     
-    // Smooth value calculation with anti-aliasing for better quality
-    float value = iterations / maxIter;
+    // SVG-like smooth rendering with distance field approach
+    // Calculate smooth escape time for crisp, vector-like edges
+    float value = 0.0;
+    float smoothValue = 0.0;
     
-    // Add smooth coloring for better detail at deep zooms
-    // This helps prevent pixelation by smoothing the iteration count
     if (iterations < maxIter) {
-        // Smooth escape time calculation
+        // Smooth escape time calculation (continuous iteration count)
         float log_zn = log(length(z)) / 2.0;
         float nu = log(log_zn / log(2.0)) / log(2.0);
-        value = (iterations + 1.0 - nu) / maxIter;
+        smoothValue = iterations + 1.0 - nu;
+        value = smoothValue / maxIter;
+    } else {
+        // Inside the set - use periodicity or max iterations
+        value = 1.0;
+        smoothValue = maxIter;
     }
+    
+    // Create SVG-like crisp edges using smoothstep
+    // This creates vector-like sharp boundaries
+    float edgeSharpness = 0.02; // How sharp the edges are (smaller = sharper)
+    float fractalEdge = smoothstep(0.0, edgeSharpness, 1.0 - value);
+    
+    // For SVG-like appearance, we want crisp lines with smooth gradients
+    // Use the smooth value to create gradient bands
+    float bandedValue = fract(smoothValue * 0.1); // Create bands
+    float bandEdge = smoothstep(0.0, 0.1, bandedValue) * (1.0 - smoothstep(0.9, 1.0, bandedValue));
+    
+    // Combine for SVG-like appearance
+    value = mix(fractalEdge, bandEdge, 0.3);
     
     // Very gradual color transitions using smooth interpolation
     // Use extremely slow color shift for smooth red-to-green transitions
@@ -315,30 +333,41 @@ kernel void fractal_compute(
         }
     }
     
-    // Create gradient bands using smoothstep
-    float band1 = smoothstep(0.0, 0.3, value) * (1.0 - smoothstep(0.3, 0.6, value));
-    float band2 = smoothstep(0.3, 0.6, value) * (1.0 - smoothstep(0.6, 0.9, value));
-    float band3 = smoothstep(0.6, 1.0, value);
+    // SVG-like rendering: crisp edges with smooth color gradients
+    // Create sharp boundaries like vector graphics
+    float edgeThreshold = 0.5;
+    float edgeWidth = 0.05; // Thin, crisp edges
     
-    // Apply subtle audio-reactive color shifts (very subtle)
-    float3 color1 = baseColor * (0.9 + uniforms.bass * 0.1);
-    float3 color2 = baseColor * (0.85 + uniforms.mid * 0.15);
-    float3 color3 = baseColor * (0.9 + uniforms.treble * 0.1);
+    // Calculate distance from fractal boundary for smooth edges
+    float distFromEdge = abs(value - edgeThreshold);
+    float edgeFactor = 1.0 - smoothstep(0.0, edgeWidth, distFromEdge);
     
-    // Blend gradient colors
-    float3 color = color1 * band1 + color2 * band2 + color3 * band3;
+    // Create smooth color gradient based on iteration bands
+    // Use the smooth value for gradient calculation
+    float gradientPos = fract(smoothValue * 0.08); // Slower gradient for smoother transitions
+    float gradientBand = smoothstep(0.0, 0.4, gradientPos) * (1.0 - smoothstep(0.6, 1.0, gradientPos));
     
-    // Add very subtle iteration-based variation (minimal)
-    float iterGradient = smoothstep(0.0, 1.0, value);
-    float3 gradientOverlay = baseColor * (0.95 + iterGradient * 0.05);
-    color = mix(color, gradientOverlay, 0.2);
+    // SVG-like color application: smooth gradients with crisp boundaries
+    float3 insideColor = baseColor * 0.3; // Darker inside
+    float3 outsideColor = baseColor; // Full color outside
     
-    // Very gradual brightness variation
-    float brightness = 0.85 + uniforms.energy * 0.1 + uniforms.beatPulse * 0.05;
+    // Smooth transition between inside and outside
+    float3 color = mix(insideColor, outsideColor, smoothstep(0.3, 0.7, value));
+    
+    // Add gradient bands for depth (like SVG gradients)
+    float3 bandColor = baseColor * (0.7 + gradientBand * 0.3);
+    color = mix(color, bandColor, 0.4);
+    
+    // Apply crisp edge (like SVG stroke)
+    float edgeColor = 1.0;
+    color = mix(color, float3(edgeColor, edgeColor, edgeColor), edgeFactor * 0.3);
+    
+    // Very subtle audio-reactive brightness (minimal to maintain SVG-like appearance)
+    float brightness = 0.9 + uniforms.energy * 0.08 + uniforms.beatPulse * 0.03;
     color *= brightness;
     
-    // Enhance contrast for richer gradients
-    color = pow(color, 0.9);
+    // SVG-like gamma correction for crisp appearance
+    color = pow(color, 0.85); // Slightly sharper for vector-like look
     color = saturate(color);
     
     output.write(float4(color, 1.0), gid);
