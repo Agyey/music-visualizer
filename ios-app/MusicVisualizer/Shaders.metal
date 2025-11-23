@@ -180,29 +180,12 @@ kernel void fractal_compute(
     float baseZoom = 0.4;
     float zoom = baseZoom * pow(2.0, accumulatedZoom);
     
-    // Use a coordinate with infinite self-similarity (mini-Mandelbrot location)
-    // This point has repeating fractal patterns at all zoom levels
-    // Coordinates: (-0.77568377, 0.13646737) - known for infinite detail
-    float2 center = float2(-0.77568377, 0.13646737);
+    // Use a well-known coordinate for infinite zoom that maintains fractal patterns
+    // This coordinate is on the boundary and has proven self-similarity
+    // Classic "Seahorse Valley" area with infinite detail
+    float2 center = float2(-0.743643887037151, 0.131825904205330);
     
-    // As we zoom deeper, we can adjust to follow the self-similar structure
-    // This ensures we always see fractal patterns, not blank space
-    // The deeper we zoom, the more we need to be precise about the location
-    float zoomDepth = log2(zoom / baseZoom);
-    
-    // Periodically adjust center to follow mini-Mandelbrot copies
-    // Every ~10 zoom levels, we're seeing a new mini-copy
-    float zoomCycle = floor(zoomDepth / 10.0);
-    float cyclePhase = fmod(zoomDepth, 10.0) / 10.0;
-    
-    // Slight adjustments to stay within interesting fractal regions
-    // These are tiny offsets that keep us in the fractal structure
-    float2 offset = float2(
-        sin(zoomCycle * 0.1) * 0.00001 * cyclePhase,
-        cos(zoomCycle * 0.15) * 0.00001 * cyclePhase
-    );
-    
-    center += offset;
+    // No adjustments needed - this coordinate maintains patterns at all zoom levels
     
     // Calculate complex plane coordinates with infinite zoom
     float2 c = center + uv / zoom;
@@ -212,9 +195,13 @@ kernel void fractal_compute(
     
     // Line width/detail controlled by audio: more iterations = finer detail
     // Energy and treble affect detail level (line width)
-    float baseIterations = 60.0;
-    float detailBoost = uniforms.energy * 40.0 + uniforms.treble * 30.0;
-    float maxIter = baseIterations + detailBoost;
+    // Increase base iterations to see more detail at deeper zooms
+    float baseIterations = 80.0;
+    float detailBoost = uniforms.energy * 50.0 + uniforms.treble * 40.0;
+    // Scale iterations with zoom depth to maintain detail
+    float zoomDepth = log2(max(zoom / baseZoom, 1.0));
+    float zoomIterations = zoomDepth * 10.0; // Add iterations as we zoom deeper
+    float maxIter = baseIterations + detailBoost + zoomIterations;
     
     for (float i = 0.0; i < maxIter; i++) {
         if (length(z) > 2.0) break;
@@ -226,7 +213,7 @@ kernel void fractal_compute(
     
     // Enhanced gradient color mapping with smooth transitions
     // Use smoothstep for gradient-like color bands
-    float colorShift = uniforms.time * 0.05; // Slow, smooth color rotation
+    float colorShift = uniforms.time * 0.01; // Very slow, smooth color rotation (reduced from 0.05)
     
     // Create gradient bands using smoothstep
     float band1 = smoothstep(0.0, 0.3, value) * (1.0 - smoothstep(0.3, 0.6, value));
