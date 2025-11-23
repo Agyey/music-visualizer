@@ -361,13 +361,12 @@ kernel void fractal_compute(
             int maxIter = int(min(baseIterations + detailBoost + zoomIterations, 1000.0)); // Higher cap
             
             // Use perturbation theory for infinite zoom without pixelation
-            // For now, use standard method for stability - perturbation theory can be enabled later
-            // For deep zooms (zoomDepth > 10), use perturbation theory
+            // For deep zooms (zoomDepth > 8), use perturbation theory
             DistanceResult distResult;
             float2 c_ref = center; // Reference point (center of view, calculated once)
             
-            // Temporarily disable perturbation theory to fix crashes - use standard method
-            if (false && zoomDepth > 10.0) {
+            // Enable perturbation theory for deep zooms
+            if (zoomDepth > 8.0) {
                 // Use perturbation theory: calculate relative to reference point
                 // This maintains precision beyond float limits
                 distResult = mandelbrot_distance_estimate_perturbation(c, c_ref, maxIter);
