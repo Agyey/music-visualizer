@@ -38,8 +38,10 @@ def create_app_icon(size):
         height = radius * (0.3 + 0.7 * abs(math.sin(i * math.pi / num_bars)))
         
         # Draw bar with glow effect
-        y_top = center - height // 2
-        y_bottom = center + height // 2
+        y_top = int(center - height // 2)
+        y_bottom = int(center + height // 2)
+        x_pos = int(x)
+        bar_w = int(bar_width)
         
         # Bar color (neon cyan/purple)
         hue = (i / num_bars) * 360
@@ -49,18 +51,19 @@ def create_app_icon(size):
             color = (200, 100, 255)  # Purple
         
         # Draw main bar
-        draw.rectangle([x - bar_width//2, y_top, x + bar_width//2, y_bottom], 
+        draw.rectangle([x_pos - bar_w//2, y_top, x_pos + bar_w//2, y_bottom], 
                       fill=color, outline=None)
         
         # Add glow
-        glow_size = bar_width * 2
-        glow_img = Image.new('RGBA', (glow_size, int(height + glow_size)), (0, 0, 0, 0))
+        glow_size = int(bar_w * 2)
+        glow_height = int(height + glow_size)
+        glow_img = Image.new('RGBA', (glow_size, glow_height), (0, 0, 0, 0))
         glow_draw = ImageDraw.Draw(glow_img)
-        glow_draw.rectangle([glow_size//2 - bar_width//2, glow_size//2, 
-                           glow_size//2 + bar_width//2, glow_size//2 + int(height)],
+        glow_draw.rectangle([glow_size//2 - bar_w//2, glow_size//2, 
+                           glow_size//2 + bar_w//2, glow_size//2 + int(height)],
                           fill=color + (180,))
-        glow_img = glow_img.filter(ImageFilter.GaussianBlur(radius=bar_width))
-        img.paste(glow_img, (x - glow_size//2, y_top - glow_size//2), glow_img)
+        glow_img = glow_img.filter(ImageFilter.GaussianBlur(radius=max(1, bar_w)))
+        img.paste(glow_img, (x_pos - glow_size//2, y_top - glow_size//2), glow_img)
     
     # Add center circle (music note symbol simplified)
     circle_radius = size * 0.08
