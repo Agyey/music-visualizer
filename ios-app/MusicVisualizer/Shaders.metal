@@ -177,26 +177,27 @@ kernel void fractal_compute(
     
     // Calculate which "level" of zoom we're at (for path selection)
     float zoomLevel = floor(accumulatedZoom / 3.0); // Change path every 3 zoom units
-    float zoomPhase = mod(accumulatedZoom, 3.0); // Phase within current level
+    float zoomPhase = fmod(accumulatedZoom, 3.0); // Phase within current level
     
     // Define interesting zoom paths that follow the fractal structure
     // Each path leads to a mini-Mandelbrot or interesting feature
     float2 center;
     
     // Path 1: Classic edge exploration
-    if (mod(zoomLevel, 4.0) < 1.0) {
+    float pathIndex = fmod(zoomLevel, 4.0);
+    if (pathIndex < 1.0) {
         float angle = zoomPhase * 2.0 * 3.14159;
         float radius = 0.25;
         center = float2(-0.5 + cos(angle) * radius, sin(angle) * radius);
     }
     // Path 2: Mini-Mandelbrot at (-0.75, 0.1)
-    else if (mod(zoomLevel, 4.0) < 2.0) {
+    else if (pathIndex < 2.0) {
         float2 target = float2(-0.75, 0.1);
         float2 start = float2(-0.5, 0.0);
         center = mix(start, target, smoothstep(0.0, 1.0, zoomPhase / 3.0));
     }
     // Path 3: Spiral into another mini-set
-    else if (mod(zoomLevel, 4.0) < 3.0) {
+    else if (pathIndex < 3.0) {
         float angle = zoomPhase * 4.0 * 3.14159;
         float radius = 0.15 * (1.0 - zoomPhase / 3.0);
         center = float2(-0.5 + cos(angle) * radius, 0.0 + sin(angle) * radius);
