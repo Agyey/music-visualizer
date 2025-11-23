@@ -155,7 +155,7 @@ struct PerturbationState {
     float2 z_total;    // Total z (reference + delta)
     float2 dz_total;   // Total derivative
     float iterations;
-    bool escaped;
+    float escaped;     // Use float instead of bool for Metal compatibility (0.0 = false, 1.0 = true)
 };
 
 // Perturbation theory implementation
@@ -163,7 +163,10 @@ struct PerturbationState {
 // dc: delta from reference (small, maintains precision)
 PerturbationState calculate_perturbation(float2 c_ref, float2 dc, int max_iterations) {
     PerturbationState state;
-    state.escaped = false;
+    state.escaped = 0.0;  // false
+    state.z_total = float2(0.0);
+    state.dz_total = float2(0.0);
+    state.iterations = 0.0;
     
     // Reference iteration: z_ref = z_ref^2 + c_ref
     float2 z_ref = float2(0.0);
@@ -215,7 +218,7 @@ PerturbationState calculate_perturbation(float2 c_ref, float2 dc, int max_iterat
         float z_total_mag_sq = dot(z_total, z_total);
         
         if (z_total_mag_sq > 4.0) {
-            state.escaped = true;
+            state.escaped = 1.0;  // true
             state.iterations = float(i);
             state.z_total = z_total;
             state.dz_total = dz_ref + delta_dz;
@@ -225,7 +228,7 @@ PerturbationState calculate_perturbation(float2 c_ref, float2 dc, int max_iterat
         state.iterations = float(i);
     }
     
-    if (!state.escaped) {
+    if (state.escaped < 0.5) {  // if not escaped
         state.z_total = z_ref + delta_z;
         state.dz_total = dz_ref + delta_dz;
     }
@@ -251,7 +254,7 @@ DistanceResult mandelbrot_distance_estimate_perturbation(float2 c, float2 c_ref,
     result.iterations = state.iterations;
     result.z = state.z_total;
     
-    if (!state.escaped) {
+    if (state.escaped < 0.5) {  // if not escaped
         result.distance = 0.0;
         return result;
     }
@@ -358,12 +361,13 @@ kernel void fractal_compute(
             int maxIter = int(min(baseIterations + detailBoost + zoomIterations, 1000.0)); // Higher cap
             
             // Use perturbation theory for infinite zoom without pixelation
-            // For deep zooms (zoomDepth > 5), use perturbation theory
-            // This maintains precision beyond single-float limits
+            // For now, use standard method for stability - perturbation theory can be enabled later
+            // For deep zooms (zoomDepth > 10), use perturbation theory
             DistanceResult distResult;
             float2 c_ref = center; // Reference point (center of view, calculated once)
             
-            if (zoomDepth > 5.0) {
+            // Temporarily disable perturbation theory to fix crashes - use standard method
+            if (false && zoomDepth > 10.0) {
                 // Use perturbation theory: calculate relative to reference point
                 // This maintains precision beyond float limits
                 distResult = mandelbrot_distance_estimate_perturbation(c, c_ref, maxIter);
