@@ -232,53 +232,73 @@ kernel void fractal_compute(
     
     float value = iterations / maxIter;
     
-    // Enhanced gradient color mapping with very gradual transitions
-    // Use smoothstep for gradient-like color bands
-    float colorShift = uniforms.time * 0.002; // Very slow, gradual color rotation
+    // Very gradual color transitions using smooth interpolation
+    // Use extremely slow color shift for smooth red-to-green transitions
+    float colorShift = uniforms.time * 0.0005; // Extremely slow (reduced from 0.002)
+    
+    // Create smooth color palette that transitions from red to green
+    // Use linear interpolation between color stops for smooth transitions
+    float hue = fmod(colorShift, 1.0); // 0 to 1, cycles through hue spectrum
+    
+    // Define color stops: Red -> Orange -> Yellow -> Green -> Cyan -> Blue -> Purple -> Red
+    float3 red = float3(0.8, 0.1, 0.1);
+    float3 orange = float3(0.8, 0.4, 0.1);
+    float3 yellow = float3(0.8, 0.8, 0.1);
+    float3 green = float3(0.1, 0.8, 0.1);
+    float3 cyan = float3(0.1, 0.8, 0.8);
+    float3 blue = float3(0.1, 0.1, 0.8);
+    float3 purple = float3(0.6, 0.1, 0.8);
+    
+    // Smoothly interpolate between color stops
+    float3 baseColor;
+    if (hue < 0.166) {
+        // Red to Orange
+        baseColor = mix(red, orange, hue / 0.166);
+    } else if (hue < 0.333) {
+        // Orange to Yellow
+        baseColor = mix(orange, yellow, (hue - 0.166) / 0.167);
+    } else if (hue < 0.5) {
+        // Yellow to Green
+        baseColor = mix(yellow, green, (hue - 0.333) / 0.167);
+    } else if (hue < 0.666) {
+        // Green to Cyan
+        baseColor = mix(green, cyan, (hue - 0.5) / 0.166);
+    } else if (hue < 0.833) {
+        // Cyan to Blue
+        baseColor = mix(cyan, blue, (hue - 0.666) / 0.167);
+    } else {
+        // Blue to Purple to Red
+        if (hue < 0.916) {
+            baseColor = mix(blue, purple, (hue - 0.833) / 0.083);
+        } else {
+            baseColor = mix(purple, red, (hue - 0.916) / 0.084);
+        }
+    }
     
     // Create gradient bands using smoothstep
     float band1 = smoothstep(0.0, 0.3, value) * (1.0 - smoothstep(0.3, 0.6, value));
     float band2 = smoothstep(0.3, 0.6, value) * (1.0 - smoothstep(0.6, 0.9, value));
     float band3 = smoothstep(0.6, 1.0, value);
     
-    // Gradient color stops with subtle audio reactivity
-    // Reduced audio multipliers for more gradual changes
-    float3 color1 = float3(
-        0.1 + sin(colorShift + uniforms.bass * 0.5) * 0.2,
-        0.2 + cos(colorShift * 1.2 + uniforms.mid * 0.5) * 0.3,
-        0.4 + sin(colorShift * 1.5 + uniforms.treble * 0.5) * 0.3
-    );
-    
-    float3 color2 = float3(
-        0.3 + sin(colorShift * 1.1 + uniforms.bass * 0.6) * 0.4,
-        0.1 + cos(colorShift * 1.3 + uniforms.mid * 0.6) * 0.2,
-        0.5 + sin(colorShift * 1.6 + uniforms.treble * 0.6) * 0.4
-    );
-    
-    float3 color3 = float3(
-        0.5 + sin(colorShift * 1.2 + uniforms.bass * 0.7) * 0.4,
-        0.4 + cos(colorShift * 1.4 + uniforms.mid * 0.7) * 0.4,
-        0.2 + sin(colorShift * 1.7 + uniforms.treble * 0.7) * 0.3
-    );
+    // Apply subtle audio-reactive color shifts (very subtle)
+    float3 color1 = baseColor * (0.9 + uniforms.bass * 0.1);
+    float3 color2 = baseColor * (0.85 + uniforms.mid * 0.15);
+    float3 color3 = baseColor * (0.9 + uniforms.treble * 0.1);
     
     // Blend gradient colors
     float3 color = color1 * band1 + color2 * band2 + color3 * band3;
     
-    // Add smooth iteration-based gradient overlay (slower)
+    // Add very subtle iteration-based variation (minimal)
     float iterGradient = smoothstep(0.0, 1.0, value);
-    float3 gradientOverlay = float3(
-        0.2 + sin(value * 15.0 + colorShift * 0.5) * 0.15,
-        0.2 + cos(value * 12.0 + colorShift * 0.6) * 0.15,
-        0.3 + sin(value * 18.0 + colorShift * 0.7) * 0.15
-    );
-    color = mix(color, gradientOverlay, 0.3);
+    float3 gradientOverlay = baseColor * (0.95 + iterGradient * 0.05);
+    color = mix(color, gradientOverlay, 0.2);
     
-    // Very gradual brightness variation with energy and beat
-    float brightness = 0.8 + uniforms.energy * 0.15 + uniforms.beatPulse * 0.1;
+    // Very gradual brightness variation
+    float brightness = 0.85 + uniforms.energy * 0.1 + uniforms.beatPulse * 0.05;
     color *= brightness;
     
     // Enhance contrast for richer gradients
-    color = pow(color, 0.9); // Slight gamma correction for richer colors
+    color = pow(color, 0.9);
     color = saturate(color);
     
     output.write(float4(color, 1.0), gid);
