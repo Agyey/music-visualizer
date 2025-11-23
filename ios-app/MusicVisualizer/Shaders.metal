@@ -290,47 +290,55 @@ kernel void fractal_compute(
     // Combine for SVG-like appearance
     value = mix(fractalEdge, bandEdge, 0.3);
     
-    // Very gradual color transitions using smooth interpolation
-    // Use extremely slow color shift for smooth red-to-green transitions
-    float colorShift = uniforms.time * 0.0005; // Extremely slow (reduced from 0.002)
+    // Rich color palette with very slow hue shift
+    // Hue shifts gradually as the song progresses
+    float hueShift = uniforms.time * 0.0002; // Very slow hue rotation (full cycle takes ~1.4 hours)
     
-    // Create smooth color palette that transitions from red to green
-    // Use linear interpolation between color stops for smooth transitions
-    float hue = fmod(colorShift, 1.0); // 0 to 1, cycles through hue spectrum
+    // Convert to HSV for smooth hue rotation
+    // Use the iteration value to create color variation across the fractal
+    float hue = fmod(value * 0.3 + hueShift, 1.0); // Map value to hue range, add slow shift
+    float saturation = 0.7 + uniforms.energy * 0.2; // Rich saturation
+    float brightness = 0.6 + uniforms.beatPulse * 0.2;
     
-    // Define color stops: Red -> Orange -> Yellow -> Green -> Cyan -> Blue -> Purple -> Red
-    float3 red = float3(0.8, 0.1, 0.1);
-    float3 orange = float3(0.8, 0.4, 0.1);
-    float3 yellow = float3(0.8, 0.8, 0.1);
-    float3 green = float3(0.1, 0.8, 0.1);
-    float3 cyan = float3(0.1, 0.8, 0.8);
-    float3 blue = float3(0.1, 0.1, 0.8);
-    float3 purple = float3(0.6, 0.1, 0.8);
-    
-    // Smoothly interpolate between color stops
+    // HSV to RGB conversion for smooth color transitions
     float3 baseColor;
+    float c = brightness * saturation;
+    float x = c * (1.0 - abs(fmod(hue * 6.0, 2.0) - 1.0));
+    float m = brightness - c;
+    
     if (hue < 0.166) {
-        // Red to Orange
-        baseColor = mix(red, orange, hue / 0.166);
+        baseColor = float3(c, x, 0.0) + m; // Red to Yellow
     } else if (hue < 0.333) {
-        // Orange to Yellow
-        baseColor = mix(orange, yellow, (hue - 0.166) / 0.167);
+        baseColor = float3(x, c, 0.0) + m; // Yellow to Green
     } else if (hue < 0.5) {
-        // Yellow to Green
-        baseColor = mix(yellow, green, (hue - 0.333) / 0.167);
+        baseColor = float3(0.0, c, x) + m; // Green to Cyan
     } else if (hue < 0.666) {
-        // Green to Cyan
-        baseColor = mix(green, cyan, (hue - 0.5) / 0.166);
+        baseColor = float3(0.0, x, c) + m; // Cyan to Blue
     } else if (hue < 0.833) {
-        // Cyan to Blue
-        baseColor = mix(cyan, blue, (hue - 0.666) / 0.167);
+        baseColor = float3(x, 0.0, c) + m; // Blue to Magenta
     } else {
-        // Blue to Purple to Red
-        if (hue < 0.916) {
-            baseColor = mix(blue, purple, (hue - 0.833) / 0.083);
-        } else {
-            baseColor = mix(purple, red, (hue - 0.916) / 0.084);
-        }
+        baseColor = float3(c, 0.0, x) + m; // Magenta to Red
+    }
+    
+    // Add variation based on iteration bands for richer palette
+    float bandHue = fmod(smoothValue * 0.05 + hueShift * 2.0, 1.0);
+    float3 bandColor;
+    float bandC = brightness * saturation * 0.8;
+    float bandX = bandC * (1.0 - abs(fmod(bandHue * 6.0, 2.0) - 1.0));
+    float bandM = brightness - bandC;
+    
+    if (bandHue < 0.166) {
+        bandColor = float3(bandC, bandX, 0.0) + bandM;
+    } else if (bandHue < 0.333) {
+        bandColor = float3(bandX, bandC, 0.0) + bandM;
+    } else if (bandHue < 0.5) {
+        bandColor = float3(0.0, bandC, bandX) + bandM;
+    } else if (bandHue < 0.666) {
+        bandColor = float3(0.0, bandX, bandC) + bandM;
+    } else if (bandHue < 0.833) {
+        bandColor = float3(bandX, 0.0, bandC) + bandM;
+    } else {
+        bandColor = float3(bandC, 0.0, bandX) + bandM;
     }
     
     // SVG-like rendering: crisp edges with smooth color gradients
@@ -347,27 +355,53 @@ kernel void fractal_compute(
     float gradientPos = fract(smoothValue * 0.08); // Slower gradient for smoother transitions
     float gradientBand = smoothstep(0.0, 0.4, gradientPos) * (1.0 - smoothstep(0.6, 1.0, gradientPos));
     
-    // SVG-like color application: smooth gradients with crisp boundaries
-    float3 insideColor = baseColor * 0.3; // Darker inside
+    // Rich palette application with smooth gradients
+    // Create depth with multiple color layers
+    float3 insideColor = baseColor * 0.4; // Darker inside
     float3 outsideColor = baseColor; // Full color outside
+    float3 bandLayer = bandColor * 0.8; // Band color layer
     
     // Smooth transition between inside and outside
     float3 color = mix(insideColor, outsideColor, smoothstep(0.3, 0.7, value));
     
-    // Add gradient bands for depth (like SVG gradients)
-    float3 bandColor = baseColor * (0.7 + gradientBand * 0.3);
-    color = mix(color, bandColor, 0.4);
+    // Add band layer for richer palette
+    color = mix(color, bandLayer, gradientBand * 0.5);
     
-    // Apply crisp edge (like SVG stroke)
-    float edgeColor = 1.0;
-    color = mix(color, float3(edgeColor, edgeColor, edgeColor), edgeFactor * 0.3);
+    // Add subtle audio-reactive color shifts (very subtle)
+    float audioHueShift = (uniforms.bass * 0.05 + uniforms.mid * 0.03 + uniforms.treble * 0.02);
+    float3 audioColor = baseColor;
+    // Apply tiny hue shift based on audio
+    float audioHue = fmod(hue + audioHueShift, 1.0);
+    float audioC = brightness * saturation;
+    float audioX = audioC * (1.0 - abs(fmod(audioHue * 6.0, 2.0) - 1.0));
+    float audioM = brightness - audioC;
     
-    // Very subtle audio-reactive brightness (minimal to maintain SVG-like appearance)
-    float brightness = 0.9 + uniforms.energy * 0.08 + uniforms.beatPulse * 0.03;
-    color *= brightness;
+    if (audioHue < 0.166) {
+        audioColor = float3(audioC, audioX, 0.0) + audioM;
+    } else if (audioHue < 0.333) {
+        audioColor = float3(audioX, audioC, 0.0) + audioM;
+    } else if (audioHue < 0.5) {
+        audioColor = float3(0.0, audioC, audioX) + audioM;
+    } else if (audioHue < 0.666) {
+        audioColor = float3(0.0, audioX, audioC) + audioM;
+    } else if (audioHue < 0.833) {
+        audioColor = float3(audioX, 0.0, audioC) + audioM;
+    } else {
+        audioColor = float3(audioC, 0.0, audioX) + audioM;
+    }
     
-    // SVG-like gamma correction for crisp appearance
-    color = pow(color, 0.85); // Slightly sharper for vector-like look
+    color = mix(color, audioColor, 0.15); // Very subtle audio color influence
+    
+    // Apply crisp edge (like SVG stroke) with palette color
+    float edgeBrightness = 1.2;
+    color = mix(color, baseColor * edgeBrightness, edgeFactor * 0.2);
+    
+    // Subtle brightness variation
+    float finalBrightness = 0.9 + uniforms.energy * 0.1 + uniforms.beatPulse * 0.05;
+    color *= finalBrightness;
+    
+    // Enhance colors for rich palette
+    color = pow(color, 0.9);
     color = saturate(color);
     
     output.write(float4(color, 1.0), gid);
