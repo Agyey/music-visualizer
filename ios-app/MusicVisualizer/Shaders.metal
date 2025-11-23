@@ -284,10 +284,6 @@ kernel void fractal_compute(
             float pixelSizeInComplexPlane = 1.0 / zoom;
             float normalizedDistance = distance / max(pixelSizeInComplexPlane, 1e-6);
             
-            // SVG-like edge: use smoothstep on distance for crisp, anti-aliased edges
-            float edgeThickness = 0.5; // Thickness of the edge in pixels
-            float edgeFactor = 1.0 - smoothstep(0.0, edgeThickness, normalizedDistance);
-            
             // Smooth iteration count for color mapping
             float smoothValue = 0.0;
             if (iterations < float(maxIter)) {
