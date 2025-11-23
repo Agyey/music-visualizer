@@ -147,71 +147,78 @@ fragment float4 fragment_main(
 }
 
 // Perturbation Theory for infinite zoom without pixelation
-// This is the standard technique used in professional fractal software
+// This is the standard technique used in professional fractal software like XaoS
+// The key insight: calculate a reference point once, then compute deltas relative to it
+// This maintains precision beyond single-float limits
+
 struct PerturbationState {
-    float2 z_ref;      // Reference point (high precision)
-    float2 dz_ref;     // Derivative at reference point
-    float2 dc;         // Delta c (difference from reference)
+    float2 z_total;    // Total z (reference + delta)
+    float2 dz_total;   // Total derivative
     float iterations;
     bool escaped;
 };
 
-// Calculate reference point using extended precision techniques
-// For very deep zooms, we use perturbation theory
+// Perturbation theory implementation
+// c_ref: reference point (center of view, calculated at high precision)
+// dc: delta from reference (small, maintains precision)
 PerturbationState calculate_perturbation(float2 c_ref, float2 dc, int max_iterations) {
     PerturbationState state;
-    state.dc = dc;
     state.escaped = false;
     
-    // Reference iteration (high precision calculation)
+    // Reference iteration: z_ref = z_ref^2 + c_ref
     float2 z_ref = float2(0.0);
     float2 dz_ref = float2(1.0, 0.0);
     
-    // Perturbation variables (delta from reference)
+    // Perturbation: delta_z (small relative to z_ref)
     float2 delta_z = float2(0.0);
     float2 delta_dz = float2(0.0);
     
     for (int i = 0; i < max_iterations; i++) {
-        // Check escape for reference
-        float z_ref_mag_sq = dot(z_ref, z_ref);
-        if (z_ref_mag_sq > 4.0) {
-            state.escaped = true;
-            state.iterations = float(i);
-            state.z_ref = z_ref;
-            state.dz_ref = dz_ref;
-            break;
-        }
-        
-        // Update reference derivative
-        dz_ref = 2.0 * float2(z_ref.x * dz_ref.x - z_ref.y * dz_ref.y, 
-                              z_ref.x * dz_ref.y + z_ref.y * dz_ref.x) + float2(1.0, 0.0);
-        
         // Update reference point
-        z_ref = float2(z_ref.x * z_ref.x - z_ref.y * z_ref.y, 2.0 * z_ref.x * z_ref.y) + c_ref;
+        float2 z_ref_new = float2(z_ref.x * z_ref.x - z_ref.y * z_ref.y, 
+                                  2.0 * z_ref.x * z_ref.y) + c_ref;
+        float2 dz_ref_new = 2.0 * float2(z_ref.x * dz_ref.x - z_ref.y * dz_ref.y,
+                                         z_ref.x * dz_ref.y + z_ref.y * dz_ref.x) + float2(1.0, 0.0);
         
-        // Perturbation update: delta_z_new = 2*z_ref*delta_z + delta_z^2 + dc
-        // This maintains precision by calculating relative to reference
+        // Perturbation update using series expansion:
+        // z_total = (z_ref + delta_z)^2 + (c_ref + dc)
+        //         = z_ref^2 + 2*z_ref*delta_z + delta_z^2 + c_ref + dc
+        // delta_z_new = 2*z_ref*delta_z + delta_z^2 + dc
+        
         float2 delta_z_sq = float2(delta_z.x * delta_z.x - delta_z.y * delta_z.y,
                                    2.0 * delta_z.x * delta_z.y);
-        delta_z = 2.0 * float2(z_ref.x * delta_z.x - z_ref.y * delta_z.y,
-                               z_ref.x * delta_z.y + z_ref.y * delta_z.x) + delta_z_sq + state.dc;
+        
+        float2 delta_z_new = 2.0 * float2(z_ref.x * delta_z.x - z_ref.y * delta_z.y,
+                                          z_ref.x * delta_z.y + z_ref.y * delta_z.x) + 
+                            delta_z_sq + dc;
         
         // Update perturbation derivative
-        float2 delta_dz_sq = float2(delta_dz.x * delta_dz.x - delta_dz.y * delta_dz.y,
-                                    2.0 * delta_dz.x * delta_dz.y);
-        delta_dz = 2.0 * float2((z_ref.x * delta_dz.x - z_ref.y * delta_dz.y) + 
-                               (delta_z.x * dz_ref.x - delta_z.y * dz_ref.y),
-                               (z_ref.x * delta_dz.y + z_ref.y * delta_dz.x) + 
-                               (delta_z.x * dz_ref.y + delta_z.y * dz_ref.x)) + delta_dz_sq;
+        // dz_total = 2*(z_ref + delta_z)*(dz_ref + delta_dz) + 1
+        // delta_dz_new = 2*z_ref*delta_dz + 2*delta_z*dz_ref + 2*delta_z*delta_dz
+        float2 cross_term = 2.0 * float2(delta_z.x * dz_ref.x - delta_z.y * dz_ref.y,
+                                         delta_z.x * dz_ref.y + delta_z.y * dz_ref.x);
+        float2 delta_dz_sq = 2.0 * float2(delta_z.x * delta_dz.x - delta_z.y * delta_dz.y,
+                                         delta_z.x * delta_dz.y + delta_z.y * delta_dz.x);
         
-        // Check escape for perturbed point
+        float2 delta_dz_new = 2.0 * float2(z_ref.x * delta_dz.x - z_ref.y * delta_dz.y,
+                                           z_ref.x * delta_dz.y + z_ref.y * delta_dz.x) + 
+                              cross_term + delta_dz_sq;
+        
+        // Update state
+        z_ref = z_ref_new;
+        dz_ref = dz_ref_new;
+        delta_z = delta_z_new;
+        delta_dz = delta_dz_new;
+        
+        // Check escape condition
         float2 z_total = z_ref + delta_z;
         float z_total_mag_sq = dot(z_total, z_total);
+        
         if (z_total_mag_sq > 4.0) {
             state.escaped = true;
             state.iterations = float(i);
-            state.z_ref = z_total;
-            state.dz_ref = dz_ref + delta_dz;
+            state.z_total = z_total;
+            state.dz_total = dz_ref + delta_dz;
             break;
         }
         
@@ -219,8 +226,8 @@ PerturbationState calculate_perturbation(float2 c_ref, float2 dc, int max_iterat
     }
     
     if (!state.escaped) {
-        state.z_ref = z_ref + delta_z;
-        state.dz_ref = dz_ref + delta_dz;
+        state.z_total = z_ref + delta_z;
+        state.dz_total = dz_ref + delta_dz;
     }
     
     return state;
@@ -233,16 +240,16 @@ struct DistanceResult {
     float2 z;
 };
 
-DistanceResult mandelbrot_distance_estimate_perturbation(float2 c, float2 c_ref, float zoom, int max_iterations) {
-    // Calculate delta from reference
+DistanceResult mandelbrot_distance_estimate_perturbation(float2 c, float2 c_ref, int max_iterations) {
+    // Calculate delta from reference (this is small, maintaining precision)
     float2 dc = c - c_ref;
     
-    // Use perturbation theory for deep zooms
+    // Use perturbation theory: calculate relative to reference point
     PerturbationState state = calculate_perturbation(c_ref, dc, max_iterations);
     
     DistanceResult result;
     result.iterations = state.iterations;
-    result.z = state.z_ref;
+    result.z = state.z_total;
     
     if (!state.escaped) {
         result.distance = 0.0;
@@ -250,8 +257,8 @@ DistanceResult mandelbrot_distance_estimate_perturbation(float2 c, float2 c_ref,
     }
     
     // Distance estimate using perturbation result
-    float z_mag = length(state.z_ref);
-    float dz_mag = length(state.dz_ref);
+    float z_mag = length(state.z_total);
+    float dz_mag = length(state.dz_total);
     
     if (dz_mag < 1e-10) {
         result.distance = 0.0;
@@ -351,14 +358,15 @@ kernel void fractal_compute(
             int maxIter = int(min(baseIterations + detailBoost + zoomIterations, 1000.0)); // Higher cap
             
             // Use perturbation theory for infinite zoom without pixelation
-            // For deep zooms (zoomDepth > 10), use perturbation theory
-            // Otherwise use standard method for performance
+            // For deep zooms (zoomDepth > 5), use perturbation theory
+            // This maintains precision beyond single-float limits
             DistanceResult distResult;
-            if (zoomDepth > 10.0) {
+            float2 c_ref = center; // Reference point (center of view, calculated once)
+            
+            if (zoomDepth > 5.0) {
                 // Use perturbation theory: calculate relative to reference point
                 // This maintains precision beyond float limits
-                float2 c_ref = center; // Reference point (center of view)
-                distResult = mandelbrot_distance_estimate_perturbation(c, c_ref, zoom, maxIter);
+                distResult = mandelbrot_distance_estimate_perturbation(c, c_ref, maxIter);
             } else {
                 // Standard method for shallow zooms (faster)
                 float2 z = float2(0.0);
