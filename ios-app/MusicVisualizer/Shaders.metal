@@ -302,43 +302,43 @@ kernel void fractal_compute(
     
     // HSV to RGB conversion for smooth color transitions
     float3 baseColor;
-    float c = brightness * saturation;
-    float x = c * (1.0 - abs(fmod(hue * 6.0, 2.0) - 1.0));
-    float m = brightness - c;
+    float chroma = brightness * saturation;
+    float x = chroma * (1.0 - abs(fmod(hue * 6.0, 2.0) - 1.0));
+    float m = brightness - chroma;
     
     if (hue < 0.166) {
-        baseColor = float3(c, x, 0.0) + m; // Red to Yellow
+        baseColor = float3(chroma, x, 0.0) + m; // Red to Yellow
     } else if (hue < 0.333) {
-        baseColor = float3(x, c, 0.0) + m; // Yellow to Green
+        baseColor = float3(x, chroma, 0.0) + m; // Yellow to Green
     } else if (hue < 0.5) {
-        baseColor = float3(0.0, c, x) + m; // Green to Cyan
+        baseColor = float3(0.0, chroma, x) + m; // Green to Cyan
     } else if (hue < 0.666) {
-        baseColor = float3(0.0, x, c) + m; // Cyan to Blue
+        baseColor = float3(0.0, x, chroma) + m; // Cyan to Blue
     } else if (hue < 0.833) {
-        baseColor = float3(x, 0.0, c) + m; // Blue to Magenta
+        baseColor = float3(x, 0.0, chroma) + m; // Blue to Magenta
     } else {
-        baseColor = float3(c, 0.0, x) + m; // Magenta to Red
+        baseColor = float3(chroma, 0.0, x) + m; // Magenta to Red
     }
     
     // Add variation based on iteration bands for richer palette
     float bandHue = fmod(smoothValue * 0.05 + hueShift * 2.0, 1.0);
     float3 bandColor;
-    float bandC = brightness * saturation * 0.8;
-    float bandX = bandC * (1.0 - abs(fmod(bandHue * 6.0, 2.0) - 1.0));
-    float bandM = brightness - bandC;
+    float bandChroma = brightness * saturation * 0.8;
+    float bandX = bandChroma * (1.0 - abs(fmod(bandHue * 6.0, 2.0) - 1.0));
+    float bandM = brightness - bandChroma;
     
     if (bandHue < 0.166) {
-        bandColor = float3(bandC, bandX, 0.0) + bandM;
+        bandColor = float3(bandChroma, bandX, 0.0) + bandM;
     } else if (bandHue < 0.333) {
-        bandColor = float3(bandX, bandC, 0.0) + bandM;
+        bandColor = float3(bandX, bandChroma, 0.0) + bandM;
     } else if (bandHue < 0.5) {
-        bandColor = float3(0.0, bandC, bandX) + bandM;
+        bandColor = float3(0.0, bandChroma, bandX) + bandM;
     } else if (bandHue < 0.666) {
-        bandColor = float3(0.0, bandX, bandC) + bandM;
+        bandColor = float3(0.0, bandX, bandChroma) + bandM;
     } else if (bandHue < 0.833) {
-        bandColor = float3(bandX, 0.0, bandC) + bandM;
+        bandColor = float3(bandX, 0.0, bandChroma) + bandM;
     } else {
-        bandColor = float3(bandC, 0.0, bandX) + bandM;
+        bandColor = float3(bandChroma, 0.0, bandX) + bandM;
     }
     
     // SVG-like rendering: crisp edges with smooth color gradients
@@ -372,22 +372,22 @@ kernel void fractal_compute(
     float3 audioColor = baseColor;
     // Apply tiny hue shift based on audio
     float audioHue = fmod(hue + audioHueShift, 1.0);
-    float audioC = brightness * saturation;
-    float audioX = audioC * (1.0 - abs(fmod(audioHue * 6.0, 2.0) - 1.0));
-    float audioM = brightness - audioC;
+    float audioChroma = brightness * saturation;
+    float audioX = audioChroma * (1.0 - abs(fmod(audioHue * 6.0, 2.0) - 1.0));
+    float audioM = brightness - audioChroma;
     
     if (audioHue < 0.166) {
-        audioColor = float3(audioC, audioX, 0.0) + audioM;
+        audioColor = float3(audioChroma, audioX, 0.0) + audioM;
     } else if (audioHue < 0.333) {
-        audioColor = float3(audioX, audioC, 0.0) + audioM;
+        audioColor = float3(audioX, audioChroma, 0.0) + audioM;
     } else if (audioHue < 0.5) {
-        audioColor = float3(0.0, audioC, audioX) + audioM;
+        audioColor = float3(0.0, audioChroma, audioX) + audioM;
     } else if (audioHue < 0.666) {
-        audioColor = float3(0.0, audioX, audioC) + audioM;
+        audioColor = float3(0.0, audioX, audioChroma) + audioM;
     } else if (audioHue < 0.833) {
-        audioColor = float3(audioX, 0.0, audioC) + audioM;
+        audioColor = float3(audioX, 0.0, audioChroma) + audioM;
     } else {
-        audioColor = float3(audioC, 0.0, audioX) + audioM;
+        audioColor = float3(audioChroma, 0.0, audioX) + audioM;
     }
     
     color = mix(color, audioColor, 0.15); // Very subtle audio color influence
