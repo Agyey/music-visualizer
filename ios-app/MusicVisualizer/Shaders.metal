@@ -161,14 +161,26 @@ kernel void fractal_compute(
     float aspect = float(output.get_width()) / float(output.get_height());
     uv.x *= aspect;
     
-    // Mandelbrot set with subtle audio-reactive zoom
-    float zoom = 0.5 + uniforms.bass * 0.2; // Reduced from 1.5
-    float2 offset = float2(0.5 + sin(uniforms.time * 0.05) * 0.1, 0.0); // Slower movement
-    float2 c = uv * zoom - offset;
+    // Infinite zoom: base zoom increases exponentially over time
+    // Beat pulse affects zoom rate (speed of zooming)
+    float baseZoomRate = 0.1; // Base zoom rate per second
+    float zoomRateMultiplier = 1.0 + uniforms.beatPulse * 2.0; // Beat makes zoom faster
+    float accumulatedZoom = uniforms.time * baseZoomRate * zoomRateMultiplier;
+    
+    // Exponential zoom: zoom = 2^accumulatedZoom
+    // Start at a reasonable zoom level and zoom in infinitely
+    float baseZoom = 0.5;
+    float zoom = baseZoom * pow(2.0, accumulatedZoom);
+    
+    // Fixed center point (no dancing/movement)
+    float2 center = float2(-0.5, 0.0); // Classic Mandelbrot center
+    
+    // Calculate complex plane coordinates with infinite zoom
+    float2 c = center + uv / zoom;
     
     float2 z = float2(0.0);
     float iterations = 0.0;
-    float maxIter = 50.0 + uniforms.energy * 20.0; // Reduced from 50.0
+    float maxIter = 50.0 + uniforms.energy * 30.0;
     
     for (float i = 0.0; i < maxIter; i++) {
         if (length(z) > 2.0) break;
@@ -178,15 +190,15 @@ kernel void fractal_compute(
     
     float value = iterations / maxIter;
     
-    // Subtle color mapping with gentle audio reactivity
+    // Color changes based on audio (no position dancing)
     float3 color = float3(
-        0.4 + sin(value * 8.0 + uniforms.time * 0.3 + uniforms.bass * 0.3) * 0.3,
-        0.4 + cos(value * 7.0 + uniforms.time * 0.4 + uniforms.mid * 0.3) * 0.3,
-        0.4 + sin(value * 9.0 + uniforms.time * 0.5 + uniforms.treble * 0.3) * 0.3
+        0.3 + sin(value * 10.0 + uniforms.bass * 3.0) * 0.4,
+        0.3 + cos(value * 8.0 + uniforms.mid * 3.0) * 0.4,
+        0.3 + sin(value * 12.0 + uniforms.treble * 3.0) * 0.4
     );
     
-    // Subtle brightness variation
-    color *= (0.85 + uniforms.energy * 0.1 + uniforms.beatPulse * 0.05);
+    // Brightness varies with energy and beat
+    color *= (0.8 + uniforms.energy * 0.2 + uniforms.beatPulse * 0.1);
     color = saturate(color);
     
     output.write(float4(color, 1.0), gid);
