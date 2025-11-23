@@ -183,37 +183,28 @@ kernel void fractal_compute(
     // Calculate zoom depth to track how deep we've zoomed
     float zoomDepth = log2(max(zoom / baseZoom, 1.0));
     
-    // Use a coordinate system that follows the fractal's self-similar structure
-    // As we zoom deeper, we need to adjust to stay within mini-Mandelbrot copies
-    // Base coordinate: classic point with good self-similarity
-    float2 baseCenter = float2(-0.77568377, 0.13646737);
+    // Use a proven coordinate for infinite zoom
+    // This coordinate is on a mini-Mandelbrot and maintains patterns at all depths
+    // Coordinate: (-0.77568377, 0.13646737) - proven for deep zooms
+    float2 center = float2(-0.77568377, 0.13646737);
     
-    // Follow a zoom path that explores mini-Mandelbrot copies
-    // Every ~8-10 zoom levels, we're seeing a new mini-copy
-    float zoomCycle = floor(zoomDepth / 8.0);
-    float cyclePhase = fmod(zoomDepth, 8.0) / 8.0;
-    
-    // Define zoom path that follows the fractal structure
-    // This ensures we always zoom into interesting fractal regions
-    float2 center;
-    
-    // Path that spirals through mini-Mandelbrot locations
-    // Each cycle takes us to a new mini-copy
-    float angle = zoomCycle * 0.785; // ~45 degrees per cycle
-    float spiralRadius = 0.0; // Start at center, spiral outward
-    
-    // Calculate position along spiral path
-    float spiralX = cos(angle) * spiralRadius;
-    float spiralY = sin(angle) * spiralRadius;
-    
-    // Use the base center and add very small adjustments
-    // The adjustments are tiny to follow the fractal structure
-    center = baseCenter + float2(spiralX * 0.0001, spiralY * 0.0001);
-    
-    // Add very subtle phase-based offset to stay in fractal regions
-    float phaseOffsetX = sin(cyclePhase * 6.28318) * 0.00005;
-    float phaseOffsetY = cos(cyclePhase * 6.28318 * 1.1) * 0.00005;
-    center += float2(phaseOffsetX, phaseOffsetY);
+    // As we zoom deeper, we need to be more precise
+    // At very deep zooms, even tiny offsets matter
+    // Use a logarithmic spiral that follows the fractal's self-similar structure
+    if (zoomDepth > 5.0) {
+        // After zooming past level 5, add tiny adjustments to follow mini-copies
+        float deepZoomPhase = fmod(zoomDepth - 5.0, 6.0) / 6.0;
+        float adjustmentScale = pow(0.1, zoomDepth / 10.0); // Exponentially smaller adjustments
+        
+        // Follow a gentle spiral that keeps us in fractal regions
+        float spiralAngle = (zoomDepth - 5.0) * 0.3;
+        float spiralRadius = 0.0001 * adjustmentScale;
+        
+        center += float2(
+            cos(spiralAngle) * spiralRadius,
+            sin(spiralAngle) * spiralRadius
+        );
+    }
     
     // Calculate complex plane coordinates with infinite zoom
     float2 c = center + uv / zoom;
@@ -223,13 +214,15 @@ kernel void fractal_compute(
     
     // Line width/detail controlled by audio: more iterations = finer detail
     // Energy and treble affect detail level (line width)
-    // Increase base iterations to see more detail at deeper zooms
-    float baseIterations = 80.0;
-    float detailBoost = uniforms.energy * 50.0 + uniforms.treble * 40.0;
-    // Scale iterations with zoom depth to maintain detail
-    float zoomDepth = log2(max(zoom / baseZoom, 1.0));
-    float zoomIterations = zoomDepth * 10.0; // Add iterations as we zoom deeper
+    // Scale iterations aggressively with zoom depth to maintain detail
+    float baseIterations = 100.0; // Increased base
+    float detailBoost = uniforms.energy * 60.0 + uniforms.treble * 50.0;
+    // Scale iterations with zoom depth - need more iterations as we zoom deeper
+    float zoomIterations = zoomDepth * 15.0; // Increased from 10.0 to 15.0
     float maxIter = baseIterations + detailBoost + zoomIterations;
+    
+    // Cap max iterations for performance (but allow high values for deep zooms)
+    maxIter = min(maxIter, 300.0);
     
     for (float i = 0.0; i < maxIter; i++) {
         if (length(z) > 2.0) break;
