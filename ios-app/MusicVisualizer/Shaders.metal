@@ -163,11 +163,11 @@ kernel void fractal_compute(
     
     // Smooth audio-controlled zoom speed
     // Base zoom rate, smoothly modulated by audio
-    float baseZoomRate = 0.4; // Base zoom rate per second (increased for faster zoom)
+    float baseZoomRate = 4; // Base zoom rate per second (increased for faster zoom)
     
     // Smooth zoom speed control: energy and beat pulse affect zoom speed smoothly
     // Use smoothstep for smooth transitions
-    float zoomSpeedMultiplier = 0.5 + uniforms.energy * 1.5 + uniforms.beatPulse * 1.0;
+    float zoomSpeedMultiplier = 5 + uniforms.energy * 1.5 + uniforms.beatPulse * 1.0;
     zoomSpeedMultiplier = smoothstep(0.3, 1.0, zoomSpeedMultiplier); // Smooth the transitions
     
     // Accumulate zoom smoothly (integrate zoom speed over time)
@@ -217,45 +217,60 @@ kernel void fractal_compute(
     
     // Line width/detail controlled by audio: more iterations = finer detail
     // Scale iterations much more aggressively with zoom depth to prevent pixelation
-    float baseIterations = 120.0; // Increased base
-    float detailBoost = uniforms.energy * 80.0 + uniforms.treble * 60.0;
+    float baseIterations = 150.0; // Increased base for better detail
+    float detailBoost = uniforms.energy * 100.0 + uniforms.treble * 80.0;
     
     // Scale iterations exponentially with zoom depth to maintain infinite detail
-    // At zoom level 10, we need ~270 iterations
-    // At zoom level 20, we need ~420 iterations
-    // Formula: base + zoomDepth^1.5 * scaleFactor
-    float zoomIterations = pow(zoomDepth, 1.5) * 20.0;
+    // Need more iterations as zoom increases to resolve finer detail
+    // Formula: base + zoomDepth^1.8 * scaleFactor (steeper curve)
+    float zoomIterations = pow(max(zoomDepth, 1.0), 1.8) * 25.0;
     float maxIter = baseIterations + detailBoost + zoomIterations;
     
-    // Higher cap for very deep zooms (but still reasonable for performance)
-    maxIter = min(maxIter, 500.0);
+    // Much higher cap for very deep zooms to prevent pixelation
+    maxIter = min(maxIter, 800.0);
     
-    // Use optimized iteration with early bailout
-    // Add periodicity checking for better precision at deep zooms
+    // Use optimized iteration with early bailout and better precision
+    // For deep zooms, we need high precision calculations
     float2 z_prev = float2(0.0);
-    float period = 0.0;
+    float2 z_prev2 = float2(0.0);
+    float bailout = 4.0; // Escape radius squared
     
     for (float i = 0.0; i < maxIter; i++) {
-        // Check for escape
-        float z_mag = length(z);
-        if (z_mag > 2.0) break;
-        
-        // Periodicity check for better precision (helps at deep zooms)
-        if (i > 10.0 && length(z - z_prev) < 0.0001) {
-            iterations = maxIter; // Inside set
+        // Check for escape (using squared magnitude for efficiency)
+        float z_mag2 = z.x * z.x + z.y * z.y;
+        if (z_mag2 > bailout) {
+            // Calculate smooth iteration count for anti-aliasing
+            float z_mag = sqrt(z_mag2);
+            iterations = i;
             break;
         }
         
-        // Store previous for periodicity check
-        if (fmod(i, 10.0) < 0.5) {
+        // Periodicity check for better precision (helps at deep zooms)
+        // Check every 5 iterations to detect cycles
+        if (i > 20.0 && fmod(i, 5.0) < 0.5) {
+            float dist1 = length(z - z_prev);
+            float dist2 = length(z - z_prev2);
+            if (dist1 < 0.00001 && dist2 < 0.00001) {
+                iterations = maxIter; // Inside set (periodic)
+                break;
+            }
+            z_prev2 = z_prev;
+            z_prev = z;
+        } else if (i > 20.0 && fmod(i, 5.0) < 1.0) {
             z_prev = z;
         }
         
-        // Optimized Mandelbrot iteration
+        // Optimized Mandelbrot iteration with better numerical stability
         float zx2 = z.x * z.x;
         float zy2 = z.y * z.y;
-        float zxy = z.x * z.y;
         
+        // Check for overflow before computing
+        if (zx2 + zy2 > 1e10) {
+            iterations = i;
+            break;
+        }
+        
+        float zxy = z.x * z.y;
         z = float2(zx2 - zy2 + c.x, 2.0 * zxy + c.y);
         iterations = i;
     }
@@ -266,11 +281,20 @@ kernel void fractal_compute(
     float smoothValue = 0.0;
     
     if (iterations < maxIter) {
-        // Smooth escape time calculation (continuous iteration count)
-        float log_zn = log(length(z)) / 2.0;
-        float nu = log(log_zn / log(2.0)) / log(2.0);
-        smoothValue = iterations + 1.0 - nu;
+        // Enhanced smooth escape time calculation for better anti-aliasing
+        // This prevents pixelation by providing continuous color values
+        float z_mag = length(z);
+        if (z_mag > 1.0) {
+            float log_zn = log(z_mag) / log(2.0);
+            float nu = log(log_zn) / log(2.0);
+            smoothValue = iterations + 1.0 - nu;
+        } else {
+            smoothValue = iterations;
+        }
         value = smoothValue / maxIter;
+        
+        // Clamp to prevent artifacts
+        value = clamp(value, 0.0, 1.0);
     } else {
         // Inside the set - use periodicity or max iterations
         value = 1.0;
