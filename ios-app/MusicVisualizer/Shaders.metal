@@ -161,66 +161,39 @@ kernel void fractal_compute(
     float aspect = float(output.get_width()) / float(output.get_height());
     uv.x *= aspect;
     
-    // Infinite zoom: base zoom increases exponentially over time
-    // Beat pulse affects zoom rate (speed of zooming)
-    float baseZoomRate = 0.15; // Base zoom rate per second
-    float zoomRateMultiplier = 1.0 + uniforms.beatPulse * 2.5; // Beat makes zoom faster
-    float accumulatedZoom = uniforms.time * baseZoomRate * zoomRateMultiplier;
+    // Smooth audio-controlled zoom speed
+    // Base zoom rate, smoothly modulated by audio
+    float baseZoomRate = 0.12; // Base zoom rate per second
+    
+    // Smooth zoom speed control: energy and beat pulse affect zoom speed smoothly
+    // Use smoothstep for smooth transitions
+    float zoomSpeedMultiplier = 0.5 + uniforms.energy * 1.5 + uniforms.beatPulse * 1.0;
+    zoomSpeedMultiplier = smoothstep(0.3, 1.0, zoomSpeedMultiplier); // Smooth the transitions
+    
+    // Accumulate zoom smoothly (integrate zoom speed over time)
+    // We'll track this as a running total that increases smoothly
+    float zoomSpeed = baseZoomRate * zoomSpeedMultiplier;
+    float accumulatedZoom = uniforms.time * zoomSpeed;
     
     // Exponential zoom: zoom = 2^accumulatedZoom
-    float baseZoom = 0.3;
+    // Start at a reasonable zoom level and zoom in infinitely
+    float baseZoom = 0.4;
     float zoom = baseZoom * pow(2.0, accumulatedZoom);
     
-    // Follow a zoom path that explores the fractal's self-similar structure
-    // As we zoom, we move along interesting paths in the Mandelbrot set
-    // This creates the repeating pattern effect
-    
-    // Calculate which "level" of zoom we're at (for path selection)
-    float zoomLevel = floor(accumulatedZoom / 3.0); // Change path every 3 zoom units
-    float zoomPhase = fmod(accumulatedZoom, 3.0); // Phase within current level
-    
-    // Define interesting zoom paths that follow the fractal structure
-    // Each path leads to a mini-Mandelbrot or interesting feature
-    float2 center;
-    
-    // Path 1: Classic edge exploration
-    float pathIndex = fmod(zoomLevel, 4.0);
-    if (pathIndex < 1.0) {
-        float angle = zoomPhase * 2.0 * 3.14159;
-        float radius = 0.25;
-        center = float2(-0.5 + cos(angle) * radius, sin(angle) * radius);
-    }
-    // Path 2: Mini-Mandelbrot at (-0.75, 0.1)
-    else if (pathIndex < 2.0) {
-        float2 target = float2(-0.75, 0.1);
-        float2 start = float2(-0.5, 0.0);
-        center = mix(start, target, smoothstep(0.0, 1.0, zoomPhase / 3.0));
-    }
-    // Path 3: Spiral into another mini-set
-    else if (pathIndex < 3.0) {
-        float angle = zoomPhase * 4.0 * 3.14159;
-        float radius = 0.15 * (1.0 - zoomPhase / 3.0);
-        center = float2(-0.5 + cos(angle) * radius, 0.0 + sin(angle) * radius);
-    }
-    // Path 4: Edge of main bulb
-    else {
-        float angle = zoomPhase * 1.5 * 3.14159;
-        float radius = 0.3;
-        center = float2(-0.5 + cos(angle) * radius, sin(angle) * radius * 0.5);
-    }
-    
-    // Add subtle audio-reactive variation to the path
-    center += float2(
-        sin(uniforms.time * 0.1 + uniforms.bass * 0.5) * 0.02,
-        cos(uniforms.time * 0.12 + uniforms.mid * 0.5) * 0.02
-    );
+    // Fixed center point - NO movement, NO bouncing, NO shaking
+    float2 center = float2(-0.743643887037151, 0.131825904205330); // Interesting point in Mandelbrot set
     
     // Calculate complex plane coordinates with infinite zoom
     float2 c = center + uv / zoom;
     
     float2 z = float2(0.0);
     float iterations = 0.0;
-    float maxIter = 50.0 + uniforms.energy * 30.0;
+    
+    // Line width/detail controlled by audio: more iterations = finer detail
+    // Energy and treble affect detail level (line width)
+    float baseIterations = 60.0;
+    float detailBoost = uniforms.energy * 40.0 + uniforms.treble * 30.0;
+    float maxIter = baseIterations + detailBoost;
     
     for (float i = 0.0; i < maxIter; i++) {
         if (length(z) > 2.0) break;
@@ -230,16 +203,18 @@ kernel void fractal_compute(
     
     float value = iterations / maxIter;
     
-    // Color changes based on audio and zoom level
-    float colorPhase = zoomLevel * 0.5 + uniforms.time * 0.1;
+    // Smooth color changes based on audio (no jitter, no shaking)
+    // Colors shift smoothly with bass, mid, treble
+    float colorShift = uniforms.time * 0.05; // Slow, smooth color rotation
     float3 color = float3(
-        0.3 + sin(value * 10.0 + colorPhase + uniforms.bass * 3.0) * 0.4,
-        0.3 + cos(value * 8.0 + colorPhase * 1.2 + uniforms.mid * 3.0) * 0.4,
-        0.3 + sin(value * 12.0 + colorPhase * 1.5 + uniforms.treble * 3.0) * 0.4
+        0.25 + sin(value * 10.0 + colorShift + uniforms.bass * 2.0) * 0.35,
+        0.25 + cos(value * 8.0 + colorShift * 1.2 + uniforms.mid * 2.0) * 0.35,
+        0.25 + sin(value * 12.0 + colorShift * 1.5 + uniforms.treble * 2.0) * 0.35
     );
     
-    // Brightness varies with energy and beat
-    color *= (0.8 + uniforms.energy * 0.2 + uniforms.beatPulse * 0.1);
+    // Smooth brightness variation with energy and beat
+    float brightness = 0.75 + uniforms.energy * 0.2 + uniforms.beatPulse * 0.15;
+    color *= brightness;
     color = saturate(color);
     
     output.write(float4(color, 1.0), gid);
