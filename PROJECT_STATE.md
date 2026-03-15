@@ -9,14 +9,17 @@ A high-performance, cross-platform music visualization suite with deep audio ana
 - **Validation**: Pydantic V2 (2.10.5)
 - **Audio Processing**: librosa, demucs, faster-whisper, moviepy
 - **NLP**: Transformers (Sentiment/Emotion)
-- **Logging**: Standard Python `logging` (⚠️ Needs migration to `loguru`)
-- **Persistence**: Local disk storage (⚠️ Violation of Stateless rule)
+- **Logging**: `loguru` (Structured JSON ready)
+- **Persistence**: Local disk storage (⚠️ Violation of Stateless rule - Migration pending)
+- **Infrastructure**: Nixpacks (Railway Project: `music-visualizer-api`)
+- **URL**: `https://music-visualizer-api-production.up.railway.app`
 
 ### Frontend (React Atomic)
 - **Core**: React 18.3.1 + TypeScript 5.7.2 + Vite 5.4.21
 - **Rendering**: WebGL, Three.js, HTML5 Canvas
-- **Architecture**: Atomic components (⚠️ `App.tsx` needs decomposition)
-- **Performance**: Standard hooks (⚠️ Missing `useMemo`/`useCallback` for heavy logic)
+- **Architecture**: Atomic components (Decomposed via `useAppHandlers`)
+- **Infrastructure**: Nixpacks (Railway Project: `music-visualizer`)
+- **URL**: `https://music-visualizer-production-01e4.up.railway.app` (Mapping to `musicvisualizer.agyeyarya.com` pending)
 
 ## 📍 Current Milestones
 ### Phase 1: Core Functionality (Completed)
@@ -31,23 +34,24 @@ A high-performance, cross-platform music visualization suite with deep audio ana
 - [x] Audio source separation (Vocals/Stems).
 - [x] Automated section detection.
 
-### Phase 3: Rendering & Export (In Progress)
-- [x] MoviePy integration for video rendering.
-- [ ] Stabilize 4K rendering performance.
-- [ ] Add cloud-based export storage.
+### Phase 3: Infrastructure & Standards (Completed)
+- [x] Migrate to `loguru` for observability.
+- [x] Standardize on `$PORT` binding.
+- [x] Add `nixpacks.toml` for deployment.
+- [x] Decompose `App.tsx` into atomic components.
+- [x] Initial Deployment to Railway.
 
 ## ⚠️ Technical Debt & Global Rules Gaps
-1. **Logging**: Migrate to `loguru` with structured JSON for Railway observability.
-2. **Statelessness**: Implement Redis/Postgres for state and S3/Cloud Storage for media files.
-3. **Frontend Decomposition**: Decompose `App.tsx` (357 lines) into smaller sub-components.
-4. **Binding**: Update `main.py` to bind to `$PORT`.
-5. **Optimization**: Implement `useMemo` and `useCallback` in frontend for render-loop critical paths.
-6. **Infrastructure**: Add `railway.json` and `nixpacks.toml` for standardized deployment.
+1. **Statelessness**: Implement Redis/Postgres for state and S3/Cloud Storage for media files.
+2. **Persistence**: Currently using `/app/media` volume in backend; need to switch to object storage for full statelessness.
+3. **Monorepo Structure**: Split into separate Railway projects due to CLI limitations; consider unifying with `railway.json` in the future.
 
 ## 🚀 Standards Alignment Roadmap
-- [x] **Task 1**: Migrate Backend to `loguru` and implement structured logging.
-- [x] **Task 2**: Refactor `App.tsx` into Atomic components (Header, CanvasContainer, ControlPanels).
+- [x] **Task 1**: Migrate Backend to `loguru`.
+- [x] **Task 2**: Refactor `App.tsx` into Atomic components.
 - [x] **Task 3**: Dynamic Port Binding in FastAPI.
-- [ ] **Task 4**: Implement `useMemo`/`useCallback` across visualizers.
-- [x] **Task 5**: Add `railway.json` or `nixpacks.toml` configuration.
-- [ ] **Task 6**: Transition from local disk persistence to stateless architecture.
+- [x] **Task 4**: Implement `useMemo`/`useCallback` across core hooks.
+- [x] **Task 5**: Add `nixpacks.toml` configuration.
+- [x] **Task 6**: Deployment to Railway.
+- [x] **Task 7**: Environment variable synchronization (CORS/API URL).
+- [ ] **Task 8**: Transition from local disk persistence to stateless architecture.
