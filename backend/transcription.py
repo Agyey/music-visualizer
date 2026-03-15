@@ -6,9 +6,7 @@ from faster_whisper import WhisperModel
 from pathlib import Path
 from typing import List, Dict, Optional
 from config import WHISPER_MODEL_SIZE, WHISPER_DEVICE
-import logging
-
-logger = logging.getLogger(__name__)
+from loguru import logger
 
 # Global model instance (lazy loaded)
 _model: Optional[WhisperModel] = None

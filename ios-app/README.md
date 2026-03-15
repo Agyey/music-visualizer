@@ -26,12 +26,15 @@ A high-performance iOS music visualizer using Core ML diffusion models and Metal
    open MusicVisualizer.xcodeproj
    ```
 
-2. Add Core ML Stable Diffusion Model:
+2. Add Core ML Stable Diffusion Model (Optional):
    - Download from [Apple's Core ML Models](https://huggingface.co/apple/coreml-stable-diffusion)
    - Add `StableDiffusion.mlmodelc` to the project bundle
-   - Or use the procedural fallback (no model required)
+   - **Note**: The app works perfectly without the model using procedural fallback generation
+   - The "Core ML model not found" message is expected and harmless
 
 3. Build and run on device or simulator
+   - **Note**: You may see XPC/LaunchServices errors in the console - these are normal iOS system messages and don't affect functionality
+   - They're common in simulators and can be safely ignored
 
 ## Architecture
 

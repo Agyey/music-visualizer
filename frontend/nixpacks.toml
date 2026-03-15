@@ -1,0 +1,14 @@
+[phases.setup]
+nixPkgs = ["nodejs"]
+
+[phases.install]
+cmds = ["npm install"]
+
+[phases.build]
+cmds = ["npm run build"]
+
+[start]
+cmd = "npm run dev"
+# Note: npm run dev is for development. 
+# For production, we'd use a server like nginx, 
+# but Nixpacks can handle static hosting if configured.

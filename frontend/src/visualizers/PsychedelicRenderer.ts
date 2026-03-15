@@ -120,7 +120,7 @@ export class PsychedelicRenderer {
     return start + (end - start) * factor;
   }
 
-  private patternType: number = 0; // 0=auto, 1=mandelbrot, 2=julia, 3=burning_ship, 4=spiral, 5=lissajous, 6=rose
+  private patternType: number = 0; // 0=auto, 1=mandelbrot, 2=julia, 3=burning_ship, 4=tricorn, 5=multibrot3, 6=multibrot4, 7=newton, 8=phoenix, 9=spiral, 10=lissajous, 11=rose
   
   setShaderVariant(variant: string | number) {
     if (typeof variant === "number") {
@@ -129,7 +129,7 @@ export class PsychedelicRenderer {
         0: 1, // fractal_zoom -> mandelbrot
         1: 2, // kaleidoscope -> julia
         2: 3, // vortex_tunnel -> burning_ship
-        3: 4, // plasma -> spiral
+        3: 4, // plasma -> tricorn
       };
       this.patternType = variantMap[variant] || 0;
     } else {
@@ -138,13 +138,18 @@ export class PsychedelicRenderer {
         "fractal_zoom": 1,    // mandelbrot
         "kaleidoscope": 2,    // julia
         "vortex_tunnel": 3,   // burning_ship
-        "plasma": 4,          // spiral
+        "plasma": 4,          // tricorn
         "mandelbrot": 1,
         "julia": 2,
         "burning_ship": 3,
-        "spiral": 4,
-        "lissajous": 5,
-        "rose": 6,
+        "tricorn": 4,
+        "multibrot3": 5,
+        "multibrot4": 6,
+        "newton": 7,
+        "phoenix": 8,
+        "spiral": 9,
+        "lissajous": 10,
+        "rose": 11,
         "auto": 0,
       };
       this.patternType = variantMap[variant.toLowerCase()] || 0;
@@ -178,7 +183,7 @@ export class PsychedelicRenderer {
       uniform float u_sentiment;
       uniform int u_section_type;
       uniform float u_emotion_code;
-      uniform int u_pattern_type; // 0=auto, 1=mandelbrot, 2=julia, 3=burning_ship, 4=spiral, 5=lissajous, 6=rose
+      uniform int u_pattern_type; // 0=auto, 1=mandelbrot, 2=julia, 3=burning_ship, 4=tricorn, 5=multibrot3, 6=multibrot4, 7=newton, 8=phoenix, 9=spiral, 10=lissajous, 11=rose
       
       // Simplex noise
       vec3 mod289(vec3 x) {
@@ -346,6 +351,84 @@ export class PsychedelicRenderer {
         return 0.0;
       }
       
+      // Complex number multiplication
+      vec2 cMul(vec2 a, vec2 b) {
+        return vec2(a.x * b.x - a.y * b.y, a.x * b.y + a.y * b.x);
+      }
+      
+      // Complex number power
+      vec2 cPow(vec2 z, float power) {
+        float r = length(z);
+        float theta = atan(z.y, z.x);
+        if (r < 0.001) return vec2(0.0);
+        r = pow(r, power);
+        theta *= power;
+        return vec2(r * cos(theta), r * sin(theta));
+      }
+      
+      // Tricorn fractal (conjugate of Mandelbrot)
+      float tricorn(vec2 c, int maxIter) {
+        vec2 z = vec2(0.0);
+        for (int i = 0; i < 100; i++) {
+          if (i >= maxIter) break;
+          if (dot(z, z) > 4.0) {
+            return float(i) / float(maxIter);
+          }
+          z = vec2(z.x * z.x - z.y * z.y, -2.0 * z.x * z.y) + c;
+        }
+        return 0.0;
+      }
+      
+      // Multibrot fractal (z^n + c)
+      float multibrot(vec2 c, float power, int maxIter) {
+        vec2 z = vec2(0.0);
+        for (int i = 0; i < 100; i++) {
+          if (i >= maxIter) break;
+          if (dot(z, z) > 4.0) {
+            return float(i) / float(maxIter);
+          }
+          z = cPow(z, power) + c;
+        }
+        return 0.0;
+      }
+      
+      // Newton fractal (z - (z^3 - 1) / (3*z^2))
+      float newton(vec2 z, int maxIter) {
+        for (int i = 0; i < 100; i++) {
+          if (i >= maxIter) break;
+          vec2 z2 = cMul(z, z);
+          vec2 z3 = cMul(z2, z);
+          vec2 numerator = z3 - vec2(1.0, 0.0);
+          vec2 denominator = cMul(z2, vec2(3.0, 0.0));
+          if (dot(denominator, denominator) < 0.0001) break;
+          vec2 dz = vec2(
+            (numerator.x * denominator.x + numerator.y * denominator.y) / dot(denominator, denominator),
+            (numerator.y * denominator.x - numerator.x * denominator.y) / dot(denominator, denominator)
+          );
+          z = z - dz;
+          if (dot(dz, dz) < 0.0001) {
+            return float(i) / float(maxIter);
+          }
+        }
+        return 0.0;
+      }
+      
+      // Phoenix fractal (z = z^2 + c + p*z_prev)
+      float phoenix(vec2 c, vec2 p, int maxIter) {
+        vec2 z = vec2(0.0);
+        vec2 zPrev = vec2(0.0);
+        for (int i = 0; i < 100; i++) {
+          if (i >= maxIter) break;
+          if (dot(z, z) > 4.0) {
+            return float(i) / float(maxIter);
+          }
+          vec2 zNext = cMul(z, z) + c + cMul(p, zPrev);
+          zPrev = z;
+          z = zNext;
+        }
+        return 0.0;
+      }
+      
       // Spiral pattern
       float spiralPattern(vec2 p, float arms, float tightness) {
         float angle = atan(p.y, p.x);
@@ -400,10 +483,10 @@ export class PsychedelicRenderer {
         // Select fractal/pattern type - use uniform if set, otherwise auto-cycle
         float patternType;
         if (u_pattern_type == 0) {
-          // Auto-cycle through patterns
-          patternType = mod(u_time * 0.1 + u_energy * 2.0, 6.0);
+          // Auto-cycle through patterns (now includes more fractals)
+          patternType = mod(u_time * 0.08 + u_energy * 2.0, 12.0);
         } else {
-          // Use selected pattern (1-6 map to 0-5)
+          // Use selected pattern (1-12 map to 0-11)
           patternType = float(u_pattern_type - 1);
         }
         float fractalValue = 0.0;
@@ -419,7 +502,6 @@ export class PsychedelicRenderer {
           vec2 mandelbrotC = (p * 0.4 + mandelbrotCenter) * mandelbrotZoom;
           int maxIter = int(mix(30.0, 100.0, clamp(u_quality / 2.0, 0.0, 1.0)));
           fractalValue = mandelbrot(mandelbrotC, maxIter);
-          // Make fractal more visible with better coloring
           fractalValue = pow(fractalValue, 0.7);
         }
         // Julia set (audio-reactive constant)
@@ -432,7 +514,6 @@ export class PsychedelicRenderer {
           vec2 juliaZ = p * 0.4 * juliaZoom;
           int maxIter = int(mix(30.0, 90.0, clamp(u_quality / 2.0, 0.0, 1.0)));
           fractalValue = julia(juliaZ, juliaC, maxIter);
-          // Make fractal more visible
           fractalValue = pow(fractalValue, 0.7);
         }
         // Burning Ship fractal
@@ -445,17 +526,76 @@ export class PsychedelicRenderer {
           vec2 shipC = (p * 0.4 + shipCenter) * shipZoom;
           int maxIter = int(mix(30.0, 85.0, clamp(u_quality / 2.0, 0.0, 1.0)));
           fractalValue = burningShip(shipC, maxIter);
-          // Make fractal more visible
+          fractalValue = pow(fractalValue, 0.7);
+        }
+        // Tricorn fractal
+        else if (patternType < 4.0) {
+          vec2 tricornCenter = vec2(
+            0.0 + sin(u_time * 0.2) * 0.2 + u_bass * 0.15,
+            0.0 + cos(u_time * 0.18) * 0.2 + u_mid * 0.15
+          );
+          float tricornZoom = 2.5 + u_treble * 3.5;
+          vec2 tricornC = (p * 0.4 + tricornCenter) * tricornZoom;
+          int maxIter = int(mix(30.0, 95.0, clamp(u_quality / 2.0, 0.0, 1.0)));
+          fractalValue = tricorn(tricornC, maxIter);
+          fractalValue = pow(fractalValue, 0.7);
+        }
+        // Multibrot z^3 + c
+        else if (patternType < 5.0) {
+          vec2 multibrotCenter = vec2(
+            -0.2 + sin(u_time * 0.15) * 0.25 + u_bass * 0.2,
+            0.0 + cos(u_time * 0.2) * 0.25 + u_mid * 0.15
+          );
+          float multibrotZoom = 2.0 + u_energy * 3.0;
+          vec2 multibrotC = (p * 0.4 + multibrotCenter) * multibrotZoom;
+          int maxIter = int(mix(30.0, 90.0, clamp(u_quality / 2.0, 0.0, 1.0)));
+          fractalValue = multibrot(multibrotC, 3.0, maxIter);
+          fractalValue = pow(fractalValue, 0.7);
+        }
+        // Multibrot z^4 + c
+        else if (patternType < 6.0) {
+          vec2 multibrotCenter = vec2(
+            -0.1 + sin(u_time * 0.18) * 0.2 + u_bass * 0.18,
+            0.0 + cos(u_time * 0.22) * 0.2 + u_mid * 0.15
+          );
+          float multibrotZoom = 2.2 + u_treble * 3.2;
+          vec2 multibrotC = (p * 0.4 + multibrotCenter) * multibrotZoom;
+          int maxIter = int(mix(30.0, 85.0, clamp(u_quality / 2.0, 0.0, 1.0)));
+          fractalValue = multibrot(multibrotC, 4.0, maxIter);
+          fractalValue = pow(fractalValue, 0.7);
+        }
+        // Newton fractal
+        else if (patternType < 7.0) {
+          float newtonZoom = 1.8 + u_mid * 2.5;
+          vec2 newtonZ = p * 0.5 * newtonZoom;
+          int maxIter = int(mix(30.0, 80.0, clamp(u_quality / 2.0, 0.0, 1.0)));
+          fractalValue = newton(newtonZ, maxIter);
+          fractalValue = pow(fractalValue, 0.65);
+        }
+        // Phoenix fractal
+        else if (patternType < 8.0) {
+          vec2 phoenixC = vec2(
+            -0.5 + sin(u_time * 0.25) * 0.3 + u_bass * 0.2,
+            0.0 + cos(u_time * 0.2) * 0.3 + u_mid * 0.15
+          );
+          vec2 phoenixP = vec2(
+            0.56667 + sin(u_time * 0.1) * 0.1,
+            0.0 + cos(u_time * 0.12) * 0.1
+          );
+          float phoenixZoom = 2.0 + u_energy * 3.0;
+          vec2 phoenixCoord = (p * 0.4) * phoenixZoom + phoenixC;
+          int maxIter = int(mix(30.0, 90.0, clamp(u_quality / 2.0, 0.0, 1.0)));
+          fractalValue = phoenix(phoenixCoord, phoenixP, maxIter);
           fractalValue = pow(fractalValue, 0.7);
         }
         // Spiral patterns
-        else if (patternType < 4.0) {
+        else if (patternType < 9.0) {
           float arms = 3.0 + u_mid * 5.0;
           float tightness = 8.0 + u_bass * 10.0;
           patternValue = spiralPattern(p, arms, tightness);
         }
         // Lissajous curves
-        else if (patternType < 5.0) {
+        else if (patternType < 10.0) {
           float a = 3.0 + u_bass * 3.0;
           float b = 2.0 + u_mid * 2.0;
           float delta = u_time * 0.5;
@@ -485,7 +625,7 @@ export class PsychedelicRenderer {
         
         // Combine fractal, pattern, and noise
         float combinedPattern = 0.0;
-        if (patternType < 3.0) {
+        if (patternType < 9.0) {
           // Use fractal value - make it dominant and visible
           combinedPattern = fractalValue * 0.9;
           // Add subtle noise only for texture, not to obscure fractal
@@ -497,7 +637,7 @@ export class PsychedelicRenderer {
         }
         
         // Add subtle sinusoidal patterns only if not showing fractals
-        if (patternType >= 3.0) {
+        if (patternType >= 9.0) {
           combinedPattern += sin(vortexP.x * 4.0 + u_time) * 0.08;
           combinedPattern += sin(vortexP.y * 4.0 + u_time * 1.1) * 0.08;
         }
@@ -506,67 +646,88 @@ export class PsychedelicRenderer {
         float shimmer = sin(vortexP.x * 25.0 + u_time * 3.0) * sin(vortexP.y * 25.0 + u_time * 3.2);
         combinedPattern += shimmer * u_treble * 0.1;
         
-        // Color palette - neon gradients with fractal coloring
-        float hue1 = fract(combinedPattern * 0.8 + u_time * 0.1 + u_lyric_intensity * 0.5);
-        float hue2 = fract(combinedPattern * 0.6 + u_time * 0.15 + u_bass * 0.3);
-        float hue = mix(hue1, hue2, sin(u_time * 0.5) * 0.5 + 0.5);
+        // Warm, inviting color palette - oranges, reds, yellows, warm pinks
+        // Base hue in warm range (0.0-0.2 for reds/oranges/yellows, 0.8-1.0 for warm pinks)
+        float warmHueBase = 0.05; // Start with orange-red
+        float warmHueRange = 0.25; // Range from red through orange to yellow
+        
+        // Create warm color variation
+        float hue1 = warmHueBase + fract(combinedPattern * 0.6 + u_time * 0.08 + u_lyric_intensity * 0.4) * warmHueRange;
+        float hue2 = warmHueBase + fract(combinedPattern * 0.5 + u_time * 0.12 + u_bass * 0.25) * warmHueRange;
+        
+        // Occasionally shift to warm pink/magenta range (0.85-0.95)
+        float pinkHue = 0.9 + fract(combinedPattern * 0.4 + u_time * 0.15) * 0.1;
+        float usePink = sin(u_time * 0.3 + u_energy * 2.0) * 0.5 + 0.5;
+        usePink = pow(usePink, 3.0); // Make it less frequent
+        
+        float hue = mix(mix(hue1, hue2, sin(u_time * 0.5) * 0.5 + 0.5), pinkHue, usePink * 0.3);
         
         // For fractals, add more color variation based on iteration count
-        if (patternType < 3.0 && fractalValue > 0.0) {
-          hue += fractalValue * 0.3;
+        if (patternType < 9.0 && fractalValue > 0.0) {
+          hue += fractalValue * 0.15; // Subtle variation
         }
         
-        // Sentiment affects base hue (warm vs cool)
-        hue += u_sentiment * 0.12;
+        // Sentiment shifts between warm orange (positive) and warm red (intense)
+        hue += u_sentiment * 0.08;
         hue = fract(hue);
         
-        // High saturation for vibrant neon colors
-        float saturation = 0.85 + u_energy * 0.15;
+        // Warm, inviting saturation - rich but not neon
+        float saturation = 0.75 + u_energy * 0.2 + u_beat_pulse * 0.1;
+        saturation = clamp(saturation, 0.6, 0.95);
         
-        // Bright, glowing values with fractal enhancement
-        float value = 0.2 + combinedPattern * 0.8 + u_beat_pulse * 0.4;
-        if (patternType < 3.0 && fractalValue > 0.0) {
-          // Make fractals much brighter and more visible
-          value = 0.3 + fractalValue * 1.2 + u_beat_pulse * 0.5;
-          // Add edge highlighting for fractals
+        // Bright, warm, glowing values with fractal enhancement
+        float value = 0.35 + combinedPattern * 0.65 + u_beat_pulse * 0.3;
+        if (patternType < 9.0 && fractalValue > 0.0) {
+          // Make fractals bright and warm
+          value = 0.4 + fractalValue * 1.1 + u_beat_pulse * 0.4;
+          // Add soft edge highlighting for fractals
           if (fractalValue > 0.0 && fractalValue < 0.15) {
-            value += (1.0 - fractalValue / 0.15) * 0.8;
+            value += (1.0 - fractalValue / 0.15) * 0.6;
           }
         }
+        value = clamp(value, 0.3, 1.0);
         
         vec3 color = hsv2rgb(vec3(hue, saturation, value));
         
-        // Radial glow from center
+        // Warm radial glow from center - soft and inviting
         float distFromCenter = length(uv);
-        float centerGlow = 1.0 - smoothstep(0.0, 0.85, distFromCenter);
-        color += centerGlow * 0.3 * vec3(1.0, 0.9, 0.7) * u_energy;
+        float centerGlow = 1.0 - smoothstep(0.0, 0.9, distFromCenter);
+        // Warm golden-orange glow
+        vec3 warmGlow = vec3(1.0, 0.75, 0.5) * 0.4 + vec3(1.0, 0.5, 0.3) * 0.3;
+        color += centerGlow * warmGlow * u_energy * 0.5;
         
-        // Beat pulse creates expanding waves
-        float pulseWave = sin((distFromCenter - u_beat_pulse * 2.5) * 20.0) * 0.5 + 0.5;
-        color *= 1.0 + pulseWave * u_beat_pulse * 0.8;
+        // Soft beat pulse creates gentle expanding waves
+        float pulseWave = sin((distFromCenter - u_beat_pulse * 2.0) * 18.0) * 0.5 + 0.5;
+        color *= 1.0 + pulseWave * u_beat_pulse * 0.4;
         
-        // Energy-based intensity
-        color *= 0.8 + u_energy * 0.8;
+        // Warm energy-based intensity boost
+        color *= 0.85 + u_energy * 0.5;
         
-        // Chromatic aberration for depth (treble-driven)
-        float aberration = u_treble * 0.03;
-        vec3 colorR = hsv2rgb(vec3(hue + aberration, saturation, value));
-        vec3 colorB = hsv2rgb(vec3(hue - aberration, saturation, value));
-        color = vec3(colorR.r, color.g, colorB.b);
+        // Subtle chromatic aberration for depth (treble-driven, warm tones)
+        float aberration = u_treble * 0.02;
+        vec3 colorR = hsv2rgb(vec3(hue + aberration * 0.5, saturation, value));
+        vec3 colorB = hsv2rgb(vec3(hue - aberration * 0.5, saturation, value));
+        color = mix(color, vec3(colorR.r, color.g, colorB.b), 0.3);
         
-        // Sparkle from treble
+        // Warm sparkle from treble - golden highlights
         float sparkle = sin(uv.x * 50.0 + u_time * 2.5) * sin(uv.y * 50.0 + u_time * 2.7);
-        color += sparkle * u_treble * 0.15;
+        vec3 warmSparkle = vec3(1.0, 0.9, 0.7);
+        color += sparkle * u_treble * 0.12 * warmSparkle;
         
-        // Bloom effect from beat
-        float bloom = u_beat_pulse * 0.4;
-        color += vec3(bloom);
+        // Warm bloom effect from beat - soft golden glow
+        float bloom = u_beat_pulse * 0.3;
+        vec3 warmBloom = vec3(1.0, 0.7, 0.4);
+        color += bloom * warmBloom;
         
-        // Add fractal edge glow
-        if (patternType < 3.0 && fractalValue > 0.0 && fractalValue < 0.1) {
+        // Add warm fractal edge glow - soft golden-white
+        if (patternType < 9.0 && fractalValue > 0.0 && fractalValue < 0.1) {
           float edgeGlow = 1.0 - smoothstep(0.0, 0.1, fractalValue);
-          color += edgeGlow * 0.5 * vec3(1.0, 1.0, 1.0);
+          vec3 warmEdgeGlow = vec3(1.0, 0.95, 0.8);
+          color += edgeGlow * 0.4 * warmEdgeGlow;
         }
+        
+        // Additional warm ambient light
+        color += vec3(0.05, 0.03, 0.01) * (1.0 + u_energy * 0.3);
         
         gl_FragColor = vec4(color, 1.0);
       }

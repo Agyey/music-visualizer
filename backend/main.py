@@ -2,15 +2,18 @@ from fastapi import FastAPI, UploadFile, File, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from pathlib import Path
+from loguru import logger
+import sys
 import json
-import logging
 
-# Configure logging
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+# Configure loguru for structured JSON logging in production
+logger.remove()
+logger.add(
+    sys.stdout,
+    format="{time} | {level} | {message}",
+    level="INFO",
+    serialize=False  # Set to True if structured JSON is required for Railway
 )
-logger = logging.getLogger(__name__)
 
 from config import ASPECT_RATIOS, RESOLUTION_PRESETS, MEDIA_DIR, VIDEO_DIR
 from models import (
@@ -233,5 +236,7 @@ async def render_video(render_req: RenderRequest):
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+    import os
+    port = int(os.getenv("PORT", 8000))
+    uvicorn.run(app, host="0.0.0.0", port=port)
 

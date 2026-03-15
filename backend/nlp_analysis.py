@@ -4,10 +4,8 @@ Uses multilingual models from Hugging Face transformers.
 """
 from transformers import pipeline, AutoTokenizer, AutoModelForSequenceClassification
 from typing import List, Dict, Optional
-import logging
+from loguru import logger
 import numpy as np
-
-logger = logging.getLogger(__name__)
 
 # Global pipelines (lazy loaded)
 _sentiment_pipeline = None

@@ -74,40 +74,64 @@ void main() {
   float detail = fractalValue * 0.1;
   t += detail;
   
-  // Rich, vibrant color palette with multiple hues
-  float hue1 = fract(t * 0.6 + u_time * 0.08 + u_lyric_intensity * 0.5);
-  float hue2 = fract(t * 0.4 + u_time * 0.12 + u_bass * 0.3);
-  float hue = mix(hue1, hue2, sin(u_time * 0.5) * 0.5 + 0.5);
+  // Warm, inviting color palette - oranges, reds, yellows, warm pinks
+  float warmHueBase = 0.05; // Start with orange-red
+  float warmHueRange = 0.25; // Range from red through orange to yellow
   
-  // High saturation for vibrant colors
-  float saturation = 0.85 + u_energy * 0.15;
+  // Create warm color variation
+  float hue1 = warmHueBase + fract(t * 0.6 + u_time * 0.08 + u_lyric_intensity * 0.4) * warmHueRange;
+  float hue2 = warmHueBase + fract(t * 0.5 + u_time * 0.12 + u_bass * 0.25) * warmHueRange;
   
-  // Bright, glowing values
-  float value = 0.4 + t * 0.6 + u_beat_pulse * 0.5 + detail * 0.3;
+  // Occasionally shift to warm pink/magenta range (0.85-0.95)
+  float pinkHue = 0.9 + fract(t * 0.4 + u_time * 0.15) * 0.1;
+  float usePink = sin(u_time * 0.3 + u_energy * 2.0) * 0.5 + 0.5;
+  usePink = pow(usePink, 3.0); // Make it less frequent
+  
+  float hue = mix(mix(hue1, hue2, sin(u_time * 0.5) * 0.5 + 0.5), pinkHue, usePink * 0.3);
+  hue = fract(hue);
+  
+  // Warm, inviting saturation - rich but not neon
+  float saturation = 0.75 + u_energy * 0.2 + u_beat_pulse * 0.1;
+  saturation = clamp(saturation, 0.6, 0.95);
+  
+  // Bright, warm, glowing values
+  float value = 0.4 + t * 0.6 + u_beat_pulse * 0.4 + detail * 0.3;
+  value = clamp(value, 0.35, 1.0);
   
   vec3 color = hsv2rgb(vec3(hue, saturation, value));
   
-  // Add radial glow from center
+  // Warm radial glow from center - soft and inviting
   float dist = length(uv);
-  float centerGlow = 1.0 - smoothstep(0.0, 0.8, dist);
-  color += centerGlow * 0.3 * vec3(1.0, 0.8, 0.6) * u_energy;
+  float centerGlow = 1.0 - smoothstep(0.0, 0.85, dist);
+  // Warm golden-orange glow
+  vec3 warmGlow = vec3(1.0, 0.75, 0.5) * 0.4 + vec3(1.0, 0.5, 0.3) * 0.3;
+  color += centerGlow * warmGlow * u_energy * 0.5;
   
-  // Beat pulse creates expanding fractal waves
-  float pulseWave = sin((dist - u_beat_pulse * 2.5) * 20.0) * 0.5 + 0.5;
-  color *= 1.0 + pulseWave * u_beat_pulse * 0.8;
+  // Soft beat pulse creates gentle expanding waves
+  float pulseWave = sin((dist - u_beat_pulse * 2.0) * 18.0) * 0.5 + 0.5;
+  color *= 1.0 + pulseWave * u_beat_pulse * 0.4;
   
-  // Energy-based intensity boost
-  color *= 0.8 + u_energy * 0.6;
+  // Warm energy-based intensity boost
+  color *= 0.85 + u_energy * 0.5;
   
-  // Enhanced chromatic aberration for depth
-  float aberration = u_treble * 0.03;
-  color.r = min(1.0, color.r * (1.0 + aberration));
-  color.g = min(1.0, color.g * (1.0 + aberration * 0.5));
-  color.b = max(0.0, color.b * (1.0 - aberration));
+  // Subtle chromatic aberration for depth (warm tones)
+  float aberration = u_treble * 0.02;
+  vec3 colorR = hsv2rgb(vec3(hue + aberration * 0.5, saturation, value));
+  vec3 colorB = hsv2rgb(vec3(hue - aberration * 0.5, saturation, value));
+  color = mix(color, vec3(colorR.r, color.g, colorB.b), 0.3);
   
-  // Add sparkle from treble
+  // Warm sparkle from treble - golden highlights
   float sparkle = sin(uv.x * 50.0 + u_time * 2.0) * sin(uv.y * 50.0 + u_time * 2.3);
-  color += sparkle * u_treble * 0.15;
+  vec3 warmSparkle = vec3(1.0, 0.9, 0.7);
+  color += sparkle * u_treble * 0.12 * warmSparkle;
+  
+  // Warm bloom effect - soft golden glow
+  float bloom = u_beat_pulse * 0.3;
+  vec3 warmBloom = vec3(1.0, 0.7, 0.4);
+  color += bloom * warmBloom;
+  
+  // Additional warm ambient light
+  color += vec3(0.05, 0.03, 0.01) * (1.0 + u_energy * 0.3);
   
   gl_FragColor = vec4(color, 1.0);
 }

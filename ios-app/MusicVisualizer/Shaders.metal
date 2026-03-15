@@ -20,6 +20,12 @@ struct ParticleUniforms {
     float treble;
     float energy;
     float beatPulse;
+    // Fractal control (manual mode)
+    float2 fractalCenter;
+    float fractalZoom;
+    int fractalType; // 0=mandelbrot, 1=julia, 2=burning_ship, 3=tricorn, 4=multibrot3, 5=multibrot4, 6=newton, 7=phoenix
+    float2 juliaC;
+    int useManualControl; // 0=auto, 1=manual
 };
 
 struct VertexOut {
@@ -46,28 +52,28 @@ kernel void particle_compute(
     float2 dir = p.position - center;
     float dist = length(dir);
     
-    // Bass: subtle radial expansion
+    // Bass: very subtle mood-based radial expansion (10x slower)
     if (dist > 0.001) {
-        float2 radial = normalize(dir) * uniforms.bass * 0.03;
+        float2 radial = normalize(dir) * uniforms.bass * 0.003; // 10x slower
         p.velocity += radial;
     }
     
-    // Mid: gentle swirling motion
+    // Mid: very gentle mood-based swirling motion (10x slower)
     float angle = atan2(dir.y, dir.x);
-    float newAngle = angle + uniforms.mid * 0.02;
-    float2 swirl = float2(cos(newAngle), sin(newAngle)) * dist * 0.01;
+    float newAngle = angle + uniforms.mid * 0.002; // 10x slower
+    float2 swirl = float2(cos(newAngle), sin(newAngle)) * dist * 0.001; // 10x slower
     p.velocity += swirl;
     
-    // Treble: subtle high-frequency jitter
+    // Treble: very subtle mood-based jitter (10x slower)
     float2 jitter = float2(
-        sin(uniforms.time * 5.0 + p.position.x * 50.0) * uniforms.treble * 0.005,
-        cos(uniforms.time * 5.0 + p.position.y * 50.0) * uniforms.treble * 0.005
+        sin(uniforms.time * 0.5 + p.position.x * 5.0) * uniforms.treble * 0.0005, // 10x slower
+        cos(uniforms.time * 0.5 + p.position.y * 5.0) * uniforms.treble * 0.0005 // 10x slower
     );
     p.velocity += jitter;
     
-    // Beat pulse: gentle pulse
-    if (uniforms.beatPulse > 0.3 && dist > 0.001) {
-        p.velocity += normalize(dir) * uniforms.beatPulse * 0.05;
+    // Beat pulse: very gentle mood-based pulse (removed aggressive threshold)
+    if (uniforms.beatPulse > 0.5 && dist > 0.001) {
+        p.velocity += normalize(dir) * uniforms.beatPulse * 0.005; // 10x slower
     }
     
     // Damping - stronger to keep particles centered
@@ -95,11 +101,11 @@ kernel void particle_compute(
         p.velocity = float2(cos(angle), sin(angle)) * 0.01;
     }
     
-    // Color based on audio
+    // Color based on mood - very subtle audio influence
     p.color = float3(
-        0.5 + uniforms.bass * 0.5,
-        0.5 + uniforms.mid * 0.5,
-        0.5 + uniforms.treble * 0.5
+        0.5 + uniforms.energy * 0.05, // Very subtle mood-based color
+        0.5 + uniforms.energy * 0.05,
+        0.5 + uniforms.energy * 0.05
     );
     
     particles[id] = p;
@@ -243,6 +249,8 @@ struct DistanceResult {
     float2 z;
 };
 
+// Note: Perturbation theory currently supports Mandelbrot only for deep zooms
+// Other fractal types use standard method (which is fine for most zooms)
 DistanceResult mandelbrot_distance_estimate_perturbation(float2 c, float2 c_ref, int max_iterations) {
     // Calculate delta from reference (this is small, maintaining precision)
     float2 dc = c - c_ref;
@@ -285,51 +293,48 @@ kernel void fractal_compute(
         return;
     }
     
-    // High-quality supersampling: sample multiple points per pixel for anti-aliasing
-    // This creates SVG-like smooth edges
-    const int samplesPerPixel = 16; // 4x4 grid of samples for better quality
+    // Optimized supersampling: reduced from 16 to 4 samples for better performance
+    // Still provides good anti-aliasing with 2x2 grid
+    const int samplesPerPixel = 4; // 2x2 grid - good balance of quality and performance
     float3 accumulatedColor = float3(0.0);
     
     float2 pixelSize = 1.0 / float2(output.get_width(), output.get_height());
     float aspect = float(output.get_width()) / float(output.get_height());
     
     // Use jittered sampling for better anti-aliasing
-    for (int sy = 0; sy < 4; sy++) {
-        for (int sx = 0; sx < 4; sx++) {
+    for (int sy = 0; sy < 2; sy++) {
+        for (int sx = 0; sx < 2; sx++) {
             // Jittered offset within pixel for better sampling
-            float jitterX = (float(sx) + 0.5) / 4.0 - 0.5;
-            float jitterY = (float(sy) + 0.5) / 4.0 - 0.5;
+            float jitterX = (float(sx) + 0.5) / 2.0 - 0.5;
+            float jitterY = (float(sy) + 0.5) / 2.0 - 0.5;
             float2 offset = float2(jitterX, jitterY) * pixelSize;
             float2 uv = (float2(gid) + offset) / float2(output.get_width(), output.get_height());
             uv = uv * 2.0 - 1.0;
             uv.x *= aspect;
     
-    // Smooth audio-controlled zoom speed
-    // Base zoom rate, smoothly modulated by audio
-    float baseZoomRate = 4; // Base zoom rate per second (increased for faster zoom)
+    // Use manual control if enabled, otherwise auto-zoom
+    float zoom;
+    float2 center;
+    float zoomDepth;
     
-    // Smooth zoom speed control: energy and beat pulse affect zoom speed smoothly
-    // Use smoothstep for smooth transitions
-    float zoomSpeedMultiplier = 5 + uniforms.energy * 1.5 + uniforms.beatPulse * 1.0;
-    zoomSpeedMultiplier = smoothstep(0.3, 1.0, zoomSpeedMultiplier); // Smooth the transitions
-    
-    // Accumulate zoom smoothly (integrate zoom speed over time)
-    // We'll track this as a running total that increases smoothly
-    float zoomSpeed = baseZoomRate * zoomSpeedMultiplier;
-    float accumulatedZoom = uniforms.time * zoomSpeed;
-    
-    // Exponential zoom: zoom = 2^accumulatedZoom
-    // Start at a reasonable zoom level and zoom in infinitely
-    float baseZoom = 0.4;
-    float zoom = baseZoom * pow(2.0, accumulatedZoom);
-    
-    // Calculate zoom depth to track how deep we've zoomed
-    float zoomDepth = log2(max(zoom / baseZoom, 1.0));
-    
-    // Use a proven coordinate for infinite zoom
-    // This coordinate is on a mini-Mandelbrot and maintains patterns at all depths
-    // Coordinate: (-0.77568377, 0.13646737) - proven for deep zooms
-    float2 center = float2(-0.77568377, 0.13646737);
+    if (uniforms.useManualControl > 0) {
+        // Manual control mode (Fraksl-like)
+        zoom = uniforms.fractalZoom;
+        center = uniforms.fractalCenter;
+        float baseZoom = 0.4;
+        zoomDepth = log2(max(zoom / baseZoom, 1.0));
+    } else {
+        // Auto-zoom mode (audio-reactive)
+        float baseZoomRate = 4;
+        float zoomSpeedMultiplier = 1.0 + uniforms.energy * 0.1; // Very subtle mood-based zoom
+        zoomSpeedMultiplier = smoothstep(0.3, 1.0, zoomSpeedMultiplier);
+        float zoomSpeed = baseZoomRate * zoomSpeedMultiplier;
+        float accumulatedZoom = uniforms.time * zoomSpeed;
+        float baseZoom = 0.4;
+        zoom = baseZoom * pow(2.0, accumulatedZoom);
+        zoomDepth = log2(max(zoom / baseZoom, 1.0));
+        center = float2(-0.77568377, 0.13646737);
+    }
     
     // As we zoom deeper, we need to be more precise
     // At very deep zooms, even tiny offsets matter
@@ -353,20 +358,21 @@ kernel void fractal_compute(
             float2 c = center + uv / zoom;
             
             // Scale iterations exponentially with zoom depth
-            // More aggressive scaling to prevent pixelation at deep zooms
-            float baseIterations = 200.0; // Increased base
-            float detailBoost = uniforms.energy * 120.0 + uniforms.treble * 100.0;
-            // Much steeper curve for deep zooms
-            float zoomIterations = pow(max(zoomDepth, 1.0), 2.0) * 30.0;
-            int maxIter = int(min(baseIterations + detailBoost + zoomIterations, 1000.0)); // Higher cap
+            // Optimized for performance - reduced base and cap
+            float baseIterations = 100.0; // Reduced from 200
+            float detailBoost = uniforms.energy * 5.0; // Very minimal mood-based detail boost
+            // Less aggressive curve for better performance
+            float zoomIterations = pow(max(zoomDepth, 1.0), 1.5) * 20.0; // Reduced from 2.0 and 30.0
+            int maxIter = int(min(baseIterations + detailBoost + zoomIterations, 400.0)); // Reduced cap from 1000
             
             // Use perturbation theory for infinite zoom without pixelation
             // For deep zooms (zoomDepth > 8), use perturbation theory
             DistanceResult distResult;
             float2 c_ref = center; // Reference point (center of view, calculated once)
             
-            // Enable perturbation theory for deep zooms
-            if (zoomDepth > 8.0) {
+            // Enable perturbation theory for deep zooms (Mandelbrot only for now)
+            // For other fractal types, use standard method
+            if (zoomDepth > 8.0 && uniforms.fractalType == 0) {
                 // Use perturbation theory: calculate relative to reference point
                 // This maintains precision beyond float limits
                 distResult = mandelbrot_distance_estimate_perturbation(c, c_ref, maxIter);
@@ -377,12 +383,63 @@ kernel void fractal_compute(
                 float z_mag_sq = 0.0;
                 float iterations = 0.0;
                 
+                // Get Julia constant if needed
+                float2 juliaC = uniforms.juliaC;
+                
                 for (int i = 0; i < maxIter; i++) {
                     z_mag_sq = dot(z, z);
                     if (z_mag_sq > 4.0) break;
                     
-                    dz = 2.0 * float2(z.x * dz.x - z.y * dz.y, z.x * dz.y + z.y * dz.x) + float2(1.0, 0.0);
-                    z = float2(z.x * z.x - z.y * z.y, 2.0 * z.x * z.y) + c;
+                    // Calculate dz based on fractal type
+                    if (uniforms.fractalType == 0) { // Mandelbrot
+                        dz = 2.0 * float2(z.x * dz.x - z.y * dz.y, z.x * dz.y + z.y * dz.x) + float2(1.0, 0.0);
+                        z = float2(z.x * z.x - z.y * z.y, 2.0 * z.x * z.y) + c;
+                    } else if (uniforms.fractalType == 1) { // Julia
+                        dz = 2.0 * float2(z.x * dz.x - z.y * dz.y, z.x * dz.y + z.y * dz.x);
+                        z = float2(z.x * z.x - z.y * z.y, 2.0 * z.x * z.y) + juliaC;
+                    } else if (uniforms.fractalType == 2) { // Burning Ship
+                        z = float2(abs(z.x), abs(z.y));
+                        dz = 2.0 * float2(z.x * dz.x - z.y * dz.y, z.x * dz.y + z.y * dz.x) + float2(1.0, 0.0);
+                        z = float2(z.x * z.x - z.y * z.y, 2.0 * z.x * z.y) + c;
+                    } else if (uniforms.fractalType == 3) { // Tricorn
+                        dz = 2.0 * float2(z.x * dz.x - z.y * dz.y, z.x * dz.y + z.y * dz.x) + float2(1.0, 0.0);
+                        z = float2(z.x * z.x - z.y * z.y, 2.0 * z.x * z.y) + c;
+                        z.y = -z.y; // Conjugate
+                    } else if (uniforms.fractalType == 4) { // Multibrot z^3
+                        float2 z2 = float2(z.x * z.x - z.y * z.y, 2.0 * z.x * z.y);
+                        float2 z3 = float2(z2.x * z.x - z2.y * z.y, z2.x * z.y + z2.y * z.x);
+                        dz = 3.0 * float2(z2.x * dz.x - z2.y * dz.y, z2.x * dz.y + z2.y * dz.x) + float2(1.0, 0.0);
+                        z = z3 + c;
+                    } else if (uniforms.fractalType == 5) { // Multibrot z^4
+                        float2 z2 = float2(z.x * z.x - z.y * z.y, 2.0 * z.x * z.y);
+                        float2 z4 = float2(z2.x * z2.x - z2.y * z2.y, 2.0 * z2.x * z2.y);
+                        dz = 4.0 * float2(z2.x * z2.x * dz.x - z2.y * z2.y * dz.y, z2.x * z2.x * dz.y + z2.y * z2.y * dz.x) + float2(1.0, 0.0);
+                        z = z4 + c;
+                    } else if (uniforms.fractalType == 6) { // Newton
+                        // Newton fractal: z = z - (z^3 - 1) / (3*z^2)
+                        float2 z2 = float2(z.x * z.x - z.y * z.y, 2.0 * z.x * z.y);
+                        float2 z3 = float2(z2.x * z.x - z2.y * z.y, z2.x * z.y + z2.y * z.x);
+                        float2 numerator = z3 - float2(1.0, 0.0);
+                        float2 denominator = 3.0 * z2;
+                        float denom_mag_sq = dot(denominator, denominator);
+                        if (denom_mag_sq > 1e-10) {
+                            float2 fraction = float2(
+                                (numerator.x * denominator.x + numerator.y * denominator.y) / denom_mag_sq,
+                                (numerator.y * denominator.x - numerator.x * denominator.y) / denom_mag_sq
+                            );
+                            z = z - fraction;
+                            dz = dz - (dz * 2.0 * z) / (3.0 * z2);
+                        }
+                    } else if (uniforms.fractalType == 7) { // Phoenix
+                        // Phoenix: z = z^2 + c + real(z_prev) * juliaC
+                        float2 z_prev = z;
+                        z = float2(z.x * z.x - z.y * z.y, 2.0 * z.x * z.y) + c + z_prev.x * juliaC;
+                        dz = 2.0 * float2(z.x * dz.x - z.y * dz.y, z.x * dz.y + z.y * dz.x) + float2(1.0, 0.0) + juliaC;
+                    } else { // Default to Mandelbrot
+                        dz = 2.0 * float2(z.x * dz.x - z.y * dz.y, z.x * dz.y + z.y * dz.x) + float2(1.0, 0.0);
+                        z = float2(z.x * z.x - z.y * z.y, 2.0 * z.x * z.y) + c;
+                    }
+                    
                     iterations = float(i);
                 }
                 
@@ -442,11 +499,12 @@ kernel void fractal_compute(
             edgeAlpha = smoothstep(0.0, edgeThickness * 2.0, normalizedDistance);
             edgeAlpha = 1.0 - edgeAlpha; // Invert for inside-outside
             
-            // Rich color palette with very slow hue shift
-            float hueShift = uniforms.time * 0.0002;
+            // Rich color palette with extremely slow hue shift - gentle mood-based evolution
+            // Very subtle audio influence - colors evolve slowly with song mood, not beats
+            float hueShift = uniforms.time * 0.0000005 + uniforms.energy * 0.00001; // Very slow base + minimal mood influence
             float hue = fmod(value * 0.3 + hueShift, 1.0);
-            float saturation = 0.7 + uniforms.energy * 0.2;
-            float brightness = 0.6 + uniforms.beatPulse * 0.2;
+            float saturation = 0.7 + uniforms.energy * 0.02; // Very minimal energy influence (mood-based)
+            float brightness = 0.6 + uniforms.energy * 0.03; // Very minimal brightness change (mood-based)
             
             // HSV to RGB conversion
             float3 sampleColor;
@@ -471,8 +529,8 @@ kernel void fractal_compute(
             // Apply edge alpha for SVG-like crisp boundaries
             sampleColor *= edgeAlpha;
             
-            // Add gradient bands for depth
-            float bandHue = fmod(smoothValue * 0.05 + hueShift * 2.0, 1.0);
+            // Add gradient bands for depth - extremely slow evolution
+            float bandHue = fmod(smoothValue * 0.05 + hueShift * 0.0005, 1.0); // Very slow band evolution
             float bandChroma = brightness * saturation * 0.8;
             float bandX = bandChroma * (1.0 - abs(fmod(bandHue * 6.0, 2.0) - 1.0));
             float bandM = brightness - bandChroma;
@@ -496,8 +554,8 @@ kernel void fractal_compute(
             float gradientBand = smoothstep(0.0, 0.4, gradientPos) * (1.0 - smoothstep(0.6, 1.0, gradientPos));
             sampleColor = mix(sampleColor, bandColor * 0.8, gradientBand * 0.5);
             
-            // Subtle audio-reactive brightness
-            float finalBrightness = 0.9 + uniforms.energy * 0.1 + uniforms.beatPulse * 0.05;
+            // Very subtle mood-based brightness - gentle evolution, not beat-reactive
+            float finalBrightness = 0.9 + uniforms.energy * 0.02; // Minimal mood influence
             sampleColor *= finalBrightness;
             sampleColor = pow(sampleColor, 0.9);
             sampleColor = saturate(sampleColor);
@@ -524,13 +582,13 @@ kernel void diffusion_compute(
     
     float2 uv = float2(gid) / float2(output.get_width(), output.get_height());
     
-    // Create smooth, flowing patterns with noise-like appearance
-    float time = uniforms.time * 0.2; // Slower movement
+    // Create smooth, flowing patterns with very slow, gentle movement
+    float time = uniforms.time * 0.05; // Much slower movement (4x slower)
     
-    // Multiple layers of smooth sine waves for organic flow
-    float pattern1 = sin(uv.x * 8.0 + time + uniforms.bass * 0.5) * 
-                     cos(uv.y * 6.0 + time * 1.1 + uniforms.mid * 0.5);
-    float pattern2 = sin(uv.x * 12.0 + time * 1.3 + uniforms.treble * 0.3) * 
+    // Multiple layers of smooth sine waves for organic flow - minimal audio influence
+    float pattern1 = sin(uv.x * 8.0 + time + uniforms.energy * 0.05) * 
+                     cos(uv.y * 6.0 + time * 1.1 + uniforms.energy * 0.05);
+    float pattern2 = sin(uv.x * 12.0 + time * 1.3) * 
                      cos(uv.y * 10.0 + time * 0.9);
     float pattern3 = sin((uv.x + uv.y) * 5.0 + time * 0.7);
     
@@ -541,15 +599,15 @@ kernel void diffusion_compute(
     float dist = length(uv - center);
     float radial = 1.0 - smoothstep(0.0, 0.7, dist);
     
-    // Color based on patterns with subtle audio reactivity
+    // Color based on patterns with very subtle mood-based reactivity
     float3 color = float3(
-        0.2 + combined * 0.3 + sin(time + uniforms.bass * 0.2) * 0.1,
-        0.2 + combined * 0.3 + cos(time * 1.2 + uniforms.mid * 0.2) * 0.1,
-        0.3 + combined * 0.4 + sin(time * 1.5 + uniforms.treble * 0.2) * 0.1
+        0.2 + combined * 0.3 + uniforms.energy * 0.01,
+        0.2 + combined * 0.3 + uniforms.energy * 0.01,
+        0.3 + combined * 0.4 + uniforms.energy * 0.01
     );
     
-    // Apply radial fade and subtle brightness
-    color *= radial * (0.8 + uniforms.energy * 0.15 + uniforms.beatPulse * 0.05);
+    // Apply radial fade and very subtle mood-based brightness
+    color *= radial * (0.8 + uniforms.energy * 0.05);
     color = saturate(color);
     
     output.write(float4(color, 1.0), gid);

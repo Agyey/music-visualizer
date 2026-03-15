@@ -12,9 +12,7 @@ from storage import analysis_output_path
 from transcription import transcribe_audio
 from nlp_analysis import analyze_lyrics, compute_emotion_summary
 from audio_processing import separate_stems
-import logging
-
-logger = logging.getLogger(__name__)
+from loguru import logger
 
 
 def analyze_audio(file_path: str, audio_id: str) -> AudioAnalysisResponse:

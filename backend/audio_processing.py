@@ -7,7 +7,7 @@ import numpy as np
 import soundfile as sf
 from pathlib import Path
 from typing import Dict, Optional, Tuple
-import logging
+from loguru import logger
 import noisereduce as nr
 from scipy import signal
 from config import STEMS_DIR, PROCESSED_AUDIO_DIR, DEMUCS_MODEL
