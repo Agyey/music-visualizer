@@ -7,23 +7,31 @@ import { ThreeDRenderer } from './ThreeDRenderer';
 import { VisualizerMode } from '../types/timeline';
 import { VisualizerQualityManager, QualityProfile } from './VisualizerQualityManager';
 
+/**
+ * VisualizerEngine manages multiple renderer backends with separate canvases.
+ * 
+ * A single HTML canvas can only have ONE context type (2d OR webgl).
+ * To support both 2D and WebGL renderers, each renderer gets its own canvas.
+ * Only the active mode's canvas is visible.
+ */
 export class VisualizerEngine {
   private mode: VisualizerMode = "geometric";
   private geometricRenderer: GeometricRenderer;
   private shaderRenderer: PsychedelicRenderer;
   private particleRenderer: ParticleRenderer | ParticleRendererWebGL;
   private threeDRenderer: ThreeDRenderer;
-  private canvas: HTMLCanvasElement;
-  private transitionProgress: number = 1.0;
-  private transitionTarget: VisualizerMode | null = null;
-  private transitionStartTime: number = 0;
+  
+  // Each renderer gets its own canvas to avoid context conflicts
+  private canvases: Map<string, HTMLCanvasElement> = new Map();
+  private container: HTMLElement;
+  
   private transitionDuration: number = 1000; // 1 second
   private useWebGLParticles: boolean = true;
   private qualityManager: VisualizerQualityManager;
   private currentQualityProfile: QualityProfile;
 
-  constructor(canvas: HTMLCanvasElement, analysis: ExtendedAudioAnalysisResponse | null) {
-    this.canvas = canvas;
+  constructor(container: HTMLElement, analysis: ExtendedAudioAnalysisResponse | null) {
+    this.container = container;
     this.qualityManager = new VisualizerQualityManager();
     this.currentQualityProfile = this.qualityManager.getProfile();
     
@@ -32,33 +40,69 @@ export class VisualizerEngine {
       this.currentQualityProfile = profile;
       this.updateRenderersQuality(profile);
     });
+
+    // Create separate canvases for each renderer type
+    const geometricCanvas = this.createCanvas('geometric');
+    const psychedelicCanvas = this.createCanvas('psychedelic');
+    const particlesCanvas = this.createCanvas('particles');
+    const threeDCanvas = this.createCanvas('threeD');
     
-    this.geometricRenderer = new GeometricRenderer(canvas, analysis);
-    this.shaderRenderer = new PsychedelicRenderer(canvas, analysis);
+    this.geometricRenderer = new GeometricRenderer(geometricCanvas, analysis);
+    this.shaderRenderer = new PsychedelicRenderer(psychedelicCanvas, analysis);
     
     // Try WebGL particles first, fallback to canvas based on quality
     if (this.currentQualityProfile.allowWebGL) {
       try {
-        this.particleRenderer = new ParticleRendererWebGL(canvas, analysis);
+        this.particleRenderer = new ParticleRendererWebGL(particlesCanvas, analysis);
         this.particleRenderer.setQualityProfile(this.currentQualityProfile);
         this.useWebGLParticles = true;
       } catch (e) {
         console.warn('WebGL particles not available, using canvas fallback');
-        this.particleRenderer = new ParticleRenderer(canvas, analysis);
+        this.particleRenderer = new ParticleRenderer(particlesCanvas, analysis);
         this.particleRenderer.setQualityProfile(this.currentQualityProfile);
         this.useWebGLParticles = false;
       }
     } else {
-      this.particleRenderer = new ParticleRenderer(canvas, analysis);
+      this.particleRenderer = new ParticleRenderer(particlesCanvas, analysis);
       this.particleRenderer.setQualityProfile(this.currentQualityProfile);
       this.useWebGLParticles = false;
     }
     
-    this.threeDRenderer = new ThreeDRenderer(canvas, analysis);
+    this.threeDRenderer = new ThreeDRenderer(threeDCanvas, analysis);
     this.threeDRenderer.setQualityProfile(this.currentQualityProfile);
     
     // Set initial quality on all renderers
     this.shaderRenderer.setQualityProfile(this.currentQualityProfile);
+    
+    // Show only the active mode's canvas
+    this.updateCanvasVisibility();
+  }
+  
+  /**
+   * Create a canvas element for a specific renderer mode.
+   * Each canvas is absolutely positioned within the container.
+   */
+  private createCanvas(mode: string): HTMLCanvasElement {
+    const canvas = document.createElement('canvas');
+    canvas.style.position = 'absolute';
+    canvas.style.top = '0';
+    canvas.style.left = '0';
+    canvas.style.width = '100%';
+    canvas.style.height = '100%';
+    canvas.style.display = 'none'; // Hidden by default
+    canvas.dataset.mode = mode;
+    this.container.appendChild(canvas);
+    this.canvases.set(mode, canvas);
+    return canvas;
+  }
+  
+  /**
+   * Show/hide canvases based on the active mode.
+   */
+  private updateCanvasVisibility() {
+    this.canvases.forEach((canvas, mode) => {
+      canvas.style.display = mode === this.mode ? 'block' : 'none';
+    });
   }
   
   private updateRenderersQuality(profile: QualityProfile) {
@@ -82,16 +126,12 @@ export class VisualizerEngine {
   setMode(mode: VisualizerMode) {
     if (this.mode === mode) return;
     
-    this.transitionTarget = mode;
-    this.transitionStartTime = performance.now();
-    this.transitionProgress = 0.0;
-    
-    // Complete transition after duration
+    // Switch mode and swap canvas visibility
+    // Use a short delay for a smoother visual transition
     setTimeout(() => {
       this.mode = mode;
-      this.transitionTarget = null;
-      this.transitionProgress = 1.0;
-    }, this.transitionDuration);
+      this.updateCanvasVisibility();
+    }, this.transitionDuration / 2);
   }
 
   getMode(): VisualizerMode {
@@ -117,10 +157,18 @@ export class VisualizerEngine {
     currentSection: string;
     emotion?: string;
   }) {
-    this.geometricRenderer.updateFeatures(time, features);
-    this.shaderRenderer.updateFeatures(time, features);
-    this.particleRenderer.updateFeatures(time, features);
-    this.threeDRenderer.updateFeatures(time, features);
+    // Only update the active renderer's features for performance
+    this.getActiveRenderer().updateFeatures(time, features);
+  }
+  
+  private getActiveRenderer(): { updateFeatures: (time: number, features: any) => void; render: (time: number) => void } {
+    switch (this.mode) {
+      case "geometric": return this.geometricRenderer;
+      case "psychedelic": return this.shaderRenderer;
+      case "particles": return this.particleRenderer;
+      case "threeD": return this.threeDRenderer;
+      default: return this.geometricRenderer;
+    }
   }
 
   render(time: number) {
@@ -128,60 +176,9 @@ export class VisualizerEngine {
     
     // Register frame for FPS tracking and quality adjustment
     this.qualityManager.registerFrame(now);
-    
-    // Update transition progress
-    if (this.transitionTarget) {
-      this.transitionProgress = Math.min(
-        (now - this.transitionStartTime) / this.transitionDuration,
-        1.0
-      );
-    }
 
-    // For WebGL modes (psychedelic, 3D), don't clear with 2D context
-    // They handle their own clearing
-    const isWebGLMode = this.mode === 'psychedelic' || this.mode === 'threeD';
-    const isTransitioningToWebGL = this.transitionTarget === 'psychedelic' || this.transitionTarget === 'threeD';
-    
-    if (!isWebGLMode && !isTransitioningToWebGL) {
-      // Only clear with 2D context for non-WebGL modes
-      const ctx = this.canvas.getContext('2d');
-      if (ctx) {
-        ctx.fillStyle = 'rgb(5, 6, 10)';
-        ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
-      }
-    }
-
-    // Render based on mode and transition
-    if (this.transitionTarget && this.transitionProgress < 1.0) {
-      // For WebGL modes, just switch directly (WebGL doesn't support opacity blending easily)
-      if (isWebGLMode || isTransitioningToWebGL) {
-        // Render new mode if transition is mostly complete
-        if (this.transitionProgress > 0.5) {
-          this.renderMode(this.transitionTarget, time);
-        } else {
-          this.renderMode(this.mode, time);
-        }
-      } else {
-        // Crossfade for 2D modes
-        const ctx = this.canvas.getContext('2d');
-        if (ctx) {
-          const oldOpacity = 1.0 - this.transitionProgress;
-          const newOpacity = this.transitionProgress;
-
-          ctx.save();
-          ctx.globalAlpha = oldOpacity;
-          this.renderMode(this.mode, time);
-          ctx.restore();
-
-          ctx.save();
-          ctx.globalAlpha = newOpacity;
-          this.renderMode(this.transitionTarget, time);
-          ctx.restore();
-        }
-      }
-    } else {
-      this.renderMode(this.mode, time);
-    }
+    // Render the active mode
+    this.renderMode(this.mode, time);
   }
 
   private renderMode(mode: VisualizerMode, time: number) {
@@ -190,51 +187,57 @@ export class VisualizerEngine {
         case "geometric":
           this.geometricRenderer.render(time);
           break;
-        case "psychedelic":
-          // Ensure canvas is ready for WebGL
-          if (this.canvas.width === 0 || this.canvas.height === 0) {
-            const rect = this.canvas.getBoundingClientRect();
+        case "psychedelic": {
+          const canvas = this.canvases.get('psychedelic');
+          if (canvas && (canvas.width === 0 || canvas.height === 0)) {
+            const rect = canvas.getBoundingClientRect();
             if (rect.width > 0 && rect.height > 0) {
-              this.canvas.width = rect.width;
-              this.canvas.height = rect.height;
+              canvas.width = rect.width;
+              canvas.height = rect.height;
             }
           }
           this.shaderRenderer.render(time);
           break;
-        case "particles":
-          // Ensure canvas is ready
-          if (this.canvas.width === 0 || this.canvas.height === 0) {
-            const rect = this.canvas.getBoundingClientRect();
+        }
+        case "particles": {
+          const canvas = this.canvases.get('particles');
+          if (canvas && (canvas.width === 0 || canvas.height === 0)) {
+            const rect = canvas.getBoundingClientRect();
             if (rect.width > 0 && rect.height > 0) {
-              this.canvas.width = rect.width;
-              this.canvas.height = rect.height;
+              canvas.width = rect.width;
+              canvas.height = rect.height;
             }
           }
           this.particleRenderer.render(time);
           break;
-        case "threeD":
-          // Ensure canvas is ready for Three.js
-          if (this.canvas.width === 0 || this.canvas.height === 0) {
-            const rect = this.canvas.getBoundingClientRect();
+        }
+        case "threeD": {
+          const canvas = this.canvases.get('threeD');
+          if (canvas && (canvas.width === 0 || canvas.height === 0)) {
+            const rect = canvas.getBoundingClientRect();
             if (rect.width > 0 && rect.height > 0) {
-              this.canvas.width = rect.width;
-              this.canvas.height = rect.height;
+              canvas.width = rect.width;
+              canvas.height = rect.height;
             }
           }
           this.threeDRenderer.render(time);
           break;
+        }
       }
     } catch (error) {
       console.error(`Error rendering ${mode} mode:`, error);
-      // Fallback: clear canvas and show error
-      const ctx = this.canvas.getContext('2d');
-      if (ctx) {
-        ctx.fillStyle = 'rgb(5, 6, 10)';
-        ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
-        ctx.fillStyle = '#fff';
-        ctx.font = '20px Arial';
-        ctx.textAlign = 'center';
-        ctx.fillText(`Error rendering ${mode} mode`, this.canvas.width / 2, this.canvas.height / 2);
+      // Fallback: show error on the geometric (2D) canvas
+      const canvas = this.canvases.get('geometric');
+      if (canvas) {
+        const ctx = canvas.getContext('2d');
+        if (ctx) {
+          ctx.fillStyle = 'rgb(5, 6, 10)';
+          ctx.fillRect(0, 0, canvas.width, canvas.height);
+          ctx.fillStyle = '#fff';
+          ctx.font = '20px Arial';
+          ctx.textAlign = 'center';
+          ctx.fillText(`Error rendering ${mode} mode`, canvas.width / 2, canvas.height / 2);
+        }
       }
     }
   }
@@ -245,17 +248,26 @@ export class VisualizerEngine {
     const renderWidth = Math.floor(width * scale);
     const renderHeight = Math.floor(height * scale);
     
-    this.canvas.width = renderWidth;
-    this.canvas.height = renderHeight;
-    
-    // Set canvas display size to full resolution
-    this.canvas.style.width = `${width}px`;
-    this.canvas.style.height = `${height}px`;
+    // Resize all canvases
+    this.canvases.forEach((canvas) => {
+      canvas.width = renderWidth;
+      canvas.height = renderHeight;
+      canvas.style.width = `${width}px`;
+      canvas.style.height = `${height}px`;
+    });
     
     this.geometricRenderer.resize(renderWidth, renderHeight);
     this.shaderRenderer.resize(renderWidth, renderHeight, profile);
     this.particleRenderer.resize(renderWidth, renderHeight);
     this.threeDRenderer.resize(renderWidth, renderHeight, profile);
+  }
+
+  // Cleanup: remove canvases from DOM
+  destroy() {
+    this.canvases.forEach((canvas) => {
+      canvas.remove();
+    });
+    this.canvases.clear();
   }
 
   // Get renderer for UI controls
@@ -313,4 +325,3 @@ export class VisualizerEngine {
     this.threeDRenderer.setThreeDConfig(config);
   }
 }
-

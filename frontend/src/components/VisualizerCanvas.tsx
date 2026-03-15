@@ -19,7 +19,7 @@ export const VisualizerCanvas: React.FC<VisualizerCanvasProps> = ({
   onEngineReady,
   liveAnalyser,
 }) => {
-  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const containerRef = useRef<HTMLDivElement>(null);
   const animationFrameRef = useRef<number | null>(null);
   const engineRef = useRef<VisualizerEngine | null>(null);
   const dataArrayRef = useRef<Uint8Array | null>(null);
@@ -104,12 +104,12 @@ export const VisualizerCanvas: React.FC<VisualizerCanvasProps> = ({
   }, [liveAnalyser]);
 
   useEffect(() => {
-    const canvas = canvasRef.current;
-    if (!canvas || (!analysis && !liveAnalyser)) return;
+    const container = containerRef.current;
+    if (!container || (!analysis && !liveAnalyser)) return;
 
-    // Initialize engine (use analysis if available, otherwise create with null)
+    // Initialize engine (use container div, not canvas)
     if (!engineRef.current) {
-      engineRef.current = new VisualizerEngine(canvas, analysis);
+      engineRef.current = new VisualizerEngine(container, analysis);
       if (onEngineReady) {
         onEngineReady(engineRef.current);
       }
@@ -122,8 +122,7 @@ export const VisualizerCanvas: React.FC<VisualizerCanvasProps> = ({
     engine.setMode(mode);
 
     const resizeCanvas = () => {
-      // Use actual canvas dimensions, not window size
-      const rect = canvas.getBoundingClientRect();
+      const rect = container.getBoundingClientRect();
       const width = rect.width || window.innerWidth;
       const height = rect.height || window.innerHeight;
       engine.resize(width, height);
@@ -229,8 +228,8 @@ export const VisualizerCanvas: React.FC<VisualizerCanvasProps> = ({
       }
 
       // Decay intensity based on distance
-      const window = 2.0; // 2 second window
-      const intensity = Math.max(0, 1.0 - minDist / window);
+      const windowSize = 2.0; // 2 second window
+      const intensity = Math.max(0, 1.0 - minDist / windowSize);
 
       // Support both old and new lyric formats
       return {
@@ -299,15 +298,14 @@ export const VisualizerCanvas: React.FC<VisualizerCanvasProps> = ({
   }, [mode]);
 
   return (
-    <canvas
-      ref={canvasRef}
+    <div
+      ref={containerRef}
       style={{
         position: 'fixed',
         top: 0,
         left: 0,
         width: '100%',
         height: '100%',
-        display: 'block',
       }}
     />
   );

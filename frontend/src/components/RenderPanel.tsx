@@ -2,8 +2,8 @@ import React, { useState } from 'react';
 import { ExtendedAudioAnalysisResponse } from '../types/timeline';
 import { renderVideo } from '../api';
 
-const API_BASE = import.meta.env.VITE_API_BASE || 
-  (window.location.port === '5173' ? 'http://localhost:8000' : '/api');
+const API_BASE = import.meta.env.VITE_API_URL || 
+  (import.meta.env.DEV ? 'http://localhost:8000' : '');
 
 interface RenderPanelProps {
   analysis: ExtendedAudioAnalysisResponse | null;
