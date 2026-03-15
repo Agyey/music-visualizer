@@ -37,19 +37,29 @@ A high-performance, cross-platform music visualization suite with deep audio ana
 - [x] Configured Nixpacks for system dependencies (FFmpeg).
 - [x] Synchronized CORS and API environment variables.
 
+### Phase 3.5: Visual Revamp (Completed)
+- [x] Resolved WebGL context conflict (multi-canvas architecture).
+- [x] **GeometricRenderer**: Deep space gradients, parallax layers, sacred geometry, floating accent particles, beat-synced energy rings, chromatic bloom, cinematic vignette, section-aware palettes.
+- [x] **ThreeDRenderer**: 2000-star field, ACES filmic tone mapping, emissive materials, wireframe overlay, orbit particle constellation, dynamic fog, inner glow billboard.
+- [x] **PsychedelicRenderer**: Section-aware color palettes (intro=blues, verse=purples, chorus=magentas, drop=reds, bridge=teal), cinematic vignette, improved chromatic aberration.
+- [x] **All Renderers**: Idle-state baselines ensure visuals are always alive even without audio input.
+
 ### Phase 4: Performance & Persistence (In Progress)
 - [ ] **Next**: Implement `useMemo`/`useCallback` across all visualizer components.
 - [ ] **Next**: Transition from local disk persistence to stateless architecture (Redis/Postgres).
+- [ ] **Next**: Code-split Three.js bundle for faster initial load.
 
 ## ⚠️ Technical Debt
 1. **Statelessness**: Backend still relies on local `/app/media` volume.
 2. **DNS**: Verify CNAME for `musicvisualizer.agyeyarya.com`.
-3. **Optimizations**: Three.js render loops need tuning for lower-end devices.
+3. **Optimizations**: Bundle size (790kB gzipped to 214kB) — consider code splitting.
+4. **React Warning**: `Received NaN` in VisualizerControls — minor prop validation issue.
 
 ## 🚀 Standards Alignment Roadmap
 - [x] **Task 1**: Migrate Backend to `loguru`.
 - [x] **Task 2**: Refactor `App.tsx` logic into hooks.
 - [x] **Task 3**: Dynamic Port Binding.
 - [x] **Task 4**: Unified Railway Project & Domain.
-- [ ] **Task 5**: Advanced Frontend Performance Tuning.
-- [ ] **Task 6**: Stateless storage integration.
+- [x] **Task 5**: Premium Visual Revamp (all 4 renderers).
+- [ ] **Task 6**: Advanced Frontend Performance Tuning.
+- [ ] **Task 7**: Stateless storage integration.
