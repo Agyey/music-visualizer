@@ -1,4 +1,4 @@
-import React, { useEffect, useRef } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { ExtendedAudioAnalysisResponse } from '../types/timeline';
 import { VisualizerEngine } from '../visualizers/VisualizerEngine';
 
@@ -21,88 +21,12 @@ export const VisualizerCanvas: React.FC<VisualizerCanvasProps> = ({
 }) => {
   const containerRef = useRef<HTMLDivElement>(null);
   const animationFrameRef = useRef<number | null>(null);
+  const liveFrameRef = useRef<number | null>(null);
   const engineRef = useRef<VisualizerEngine | null>(null);
-  const dataArrayRef = useRef<Uint8Array | null>(null);
-  const bufferLengthRef = useRef<number>(0);
+  // Track engine readiness so effects can react to it
+  const [engineReady, setEngineReady] = useState(false);
 
-  // Initialize analyser data array for live mode
-  useEffect(() => {
-    if (liveAnalyser) {
-      bufferLengthRef.current = liveAnalyser.frequencyBinCount;
-      dataArrayRef.current = new Uint8Array(bufferLengthRef.current);
-    }
-  }, [liveAnalyser]);
-
-  // Live audio visualization
-  useEffect(() => {
-    if (!liveAnalyser || !engineRef.current) return;
-
-    const engine = engineRef.current;
-    const bufferLength = liveAnalyser.frequencyBinCount;
-    let animationFrameId: number;
-
-    const analyzeLiveAudio = () => {
-      // Create a new array each frame to avoid type issues
-      const buffer = new Uint8Array(bufferLength);
-      liveAnalyser.getByteFrequencyData(buffer);
-      
-      // Calculate frequency bands (bass, mid, treble)
-      const bassStart = 0;
-      const bassEnd = Math.floor(buffer.length * 0.1);
-      const midStart = bassEnd;
-      const midEnd = Math.floor(buffer.length * 0.5);
-      const trebleStart = midEnd;
-      const trebleEnd = buffer.length;
-
-      let bassSum = 0;
-      let midSum = 0;
-      let trebleSum = 0;
-
-      for (let i = bassStart; i < bassEnd; i++) {
-        bassSum += buffer[i];
-      }
-      for (let i = midStart; i < midEnd; i++) {
-        midSum += buffer[i];
-      }
-      for (let i = trebleStart; i < trebleEnd; i++) {
-        trebleSum += buffer[i];
-      }
-
-      const bass = (bassSum / (bassEnd - bassStart)) / 255;
-      const mid = (midSum / (midEnd - midStart)) / 255;
-      const treble = (trebleSum / (trebleEnd - trebleStart)) / 255;
-      const energy = (bass * 0.4 + mid * 0.4 + treble * 0.2);
-
-      // Calculate beat pulse from energy changes
-      const time = performance.now() / 1000;
-      const beatPulse = energy > 0.5 ? energy * 0.8 : 0;
-
-      engine.updateFeatures(time, {
-        bass,
-        mid,
-        treble,
-        energy,
-        beatPulse,
-        lyricIntensity: 0,
-        lyricSentiment: 0,
-        lyricEnergy: energy,
-        currentSection: "live",
-        emotion: "neutral",
-      });
-
-      engine.render(time);
-      animationFrameId = requestAnimationFrame(analyzeLiveAudio);
-    };
-
-    analyzeLiveAudio();
-
-    return () => {
-      if (animationFrameId) {
-        cancelAnimationFrame(animationFrameId);
-      }
-    };
-  }, [liveAnalyser]);
-
+  // ── ENGINE INITIALIZATION ──
   useEffect(() => {
     const container = containerRef.current;
     if (!container || (!analysis && !liveAnalyser)) return;
@@ -110,6 +34,7 @@ export const VisualizerCanvas: React.FC<VisualizerCanvasProps> = ({
     // Initialize engine (use container div, not canvas)
     if (!engineRef.current) {
       engineRef.current = new VisualizerEngine(container, analysis);
+      setEngineReady(true);
       if (onEngineReady) {
         onEngineReady(engineRef.current);
       }
@@ -131,14 +56,82 @@ export const VisualizerCanvas: React.FC<VisualizerCanvasProps> = ({
     resizeCanvas();
     window.addEventListener('resize', resizeCanvas);
 
-    // Skip file-based animation if in live mode
-    if (liveAnalyser) {
-      return () => {
-        window.removeEventListener('resize', resizeCanvas);
-      };
-    }
+    return () => {
+      window.removeEventListener('resize', resizeCanvas);
+    };
+  }, [analysis, mode, onEngineReady, liveAnalyser]);
 
-    if (!analysis) return;
+  // ── LIVE AUDIO VISUALIZATION ──
+  // Runs when liveAnalyser is set AND engine is ready
+  useEffect(() => {
+    if (!liveAnalyser || !engineRef.current) return;
+
+    const engine = engineRef.current;
+    const bufferLength = liveAnalyser.frequencyBinCount;
+
+    const analyzeLiveAudio = () => {
+      const buffer = new Uint8Array(bufferLength);
+      liveAnalyser.getByteFrequencyData(buffer);
+      
+      // Calculate frequency bands (bass, mid, treble)
+      const bassEnd = Math.floor(bufferLength * 0.1);
+      const midEnd = Math.floor(bufferLength * 0.5);
+
+      let bassSum = 0;
+      let midSum = 0;
+      let trebleSum = 0;
+
+      for (let i = 0; i < bassEnd; i++) {
+        bassSum += buffer[i];
+      }
+      for (let i = bassEnd; i < midEnd; i++) {
+        midSum += buffer[i];
+      }
+      for (let i = midEnd; i < bufferLength; i++) {
+        trebleSum += buffer[i];
+      }
+
+      const bass = (bassSum / bassEnd) / 255;
+      const mid = (midSum / (midEnd - bassEnd)) / 255;
+      const treble = (trebleSum / (bufferLength - midEnd)) / 255;
+      const energy = (bass * 0.4 + mid * 0.4 + treble * 0.2);
+
+      const time = performance.now() / 1000;
+      const beatPulse = energy > 0.5 ? energy * 0.8 : 0;
+
+      engine.updateFeatures(time, {
+        bass,
+        mid,
+        treble,
+        energy,
+        beatPulse,
+        lyricIntensity: 0,
+        lyricSentiment: 0,
+        lyricEnergy: energy,
+        currentSection: "live",
+        emotion: "neutral",
+      });
+
+      engine.render(time);
+      liveFrameRef.current = requestAnimationFrame(analyzeLiveAudio);
+    };
+
+    analyzeLiveAudio();
+
+    return () => {
+      if (liveFrameRef.current) {
+        cancelAnimationFrame(liveFrameRef.current);
+        liveFrameRef.current = null;
+      }
+    };
+  }, [liveAnalyser, engineReady]);
+
+  // ── FILE-BASED AUDIO VISUALIZATION ──
+  useEffect(() => {
+    // Skip if in live mode or no analysis
+    if (liveAnalyser || !analysis || !engineRef.current) return;
+
+    const engine = engineRef.current;
 
     const interpolateFeatures = (t: number) => {
       const frames = analysis.frames;
@@ -172,7 +165,6 @@ export const VisualizerCanvas: React.FC<VisualizerCanvasProps> = ({
     };
 
     const getBeatPulse = (t: number): number => {
-      if (!analysis) return 0;
       let pulse = 0;
       for (const beat of analysis.beats) {
         const dt = Math.abs(t - beat.time);
@@ -185,7 +177,7 @@ export const VisualizerCanvas: React.FC<VisualizerCanvasProps> = ({
     };
 
     const getCurrentSection = (t: number): string => {
-      if (!analysis || !analysis.sections || analysis.sections.length === 0) {
+      if (!analysis.sections || analysis.sections.length === 0) {
         return "intro";
       }
       
@@ -199,27 +191,23 @@ export const VisualizerCanvas: React.FC<VisualizerCanvasProps> = ({
     };
 
     const getLyricFeatures = (t: number) => {
-      if (!analysis || !analysis.lyrics || analysis.lyrics.length === 0) {
+      if (!analysis.lyrics || analysis.lyrics.length === 0) {
         return { intensity: 0, sentiment: 0, energy: 0 };
       }
 
-      // Find current or closest lyric (support both LyricEntry and LyricSegment)
       let closest: any = analysis.lyrics[0];
       let minDist = Infinity;
 
       for (const lyric of analysis.lyrics) {
-        // Support both old format (time) and new format (start/end)
         const lyricTime = (lyric as any).start !== undefined ? (lyric as any).start : (lyric as any).time;
         const lyricEnd = (lyric as any).end !== undefined ? (lyric as any).end : lyricTime;
         
-        // Check if current time is within lyric segment
         if (t >= lyricTime && t <= lyricEnd) {
           closest = lyric;
           minDist = 0;
           break;
         }
         
-        // Otherwise find closest
         const dist = Math.abs(t - lyricTime);
         if (dist < minDist) {
           minDist = dist;
@@ -227,11 +215,9 @@ export const VisualizerCanvas: React.FC<VisualizerCanvasProps> = ({
         }
       }
 
-      // Decay intensity based on distance
-      const windowSize = 2.0; // 2 second window
+      const windowSize = 2.0;
       const intensity = Math.max(0, 1.0 - minDist / windowSize);
 
-      // Support both old and new lyric formats
       return {
         intensity: closest.intensity !== undefined ? closest.intensity : intensity,
         sentiment: closest.sentiment || 0,
@@ -240,11 +226,6 @@ export const VisualizerCanvas: React.FC<VisualizerCanvasProps> = ({
     };
 
     const animate = () => {
-      // Skip if in live mode (handled by separate effect)
-      if (liveAnalyser) {
-        return;
-      }
-
       const audio = audioRef.current;
       if (!audio) {
         animationFrameRef.current = requestAnimationFrame(animate);
@@ -257,7 +238,6 @@ export const VisualizerCanvas: React.FC<VisualizerCanvasProps> = ({
       const section = getCurrentSection(t);
       const lyric = getLyricFeatures(t);
 
-      // Get emotion from analysis if available
       const emotion = analysis?.emotion_summary?.overall_emotion || 
                      analysis?.sections?.find((s) => 
                        t >= s.start && t <= s.end
@@ -283,12 +263,12 @@ export const VisualizerCanvas: React.FC<VisualizerCanvasProps> = ({
     animate();
 
     return () => {
-      window.removeEventListener('resize', resizeCanvas);
       if (animationFrameRef.current) {
         cancelAnimationFrame(animationFrameRef.current);
+        animationFrameRef.current = null;
       }
     };
-  }, [analysis, audioRef, mode, onEngineReady, liveAnalyser]);
+  }, [analysis, audioRef, liveAnalyser, engineReady]);
 
   // Update mode when prop changes
   useEffect(() => {
