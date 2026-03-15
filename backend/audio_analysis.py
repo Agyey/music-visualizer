@@ -2,6 +2,8 @@ import librosa
 import numpy as np
 import json
 import re
+import subprocess
+import shutil
 from pathlib import Path
 from models import (
     AudioAnalysisResponse, ExtendedAudioAnalysisResponse,
@@ -15,6 +17,58 @@ from audio_processing import separate_stems
 from loguru import logger
 
 
+# Formats that soundfile/librosa can natively decode
+_NATIVE_FORMATS = {".wav", ".flac", ".ogg", ".mp3"}
+
+
+def ensure_wav(file_path: str) -> str:
+    """Convert audio to WAV via FFmpeg if the format isn't natively supported.
+
+    Returns the path to a WAV file (may be the same as the input if already
+    in a supported format, or a new converted file).
+    """
+    ext = Path(file_path).suffix.lower()
+    if ext in _NATIVE_FORMATS:
+        return file_path  # librosa can handle these directly
+
+    # Need conversion — create a .wav sibling
+    wav_path = Path(file_path).with_suffix(".wav")
+    if wav_path.exists():
+        logger.info(f"Using cached WAV conversion: {wav_path}")
+        return str(wav_path)
+
+    ffmpeg_bin = shutil.which("ffmpeg")
+    if not ffmpeg_bin:
+        raise RuntimeError(
+            "FFmpeg is not installed. Cannot convert .m4a/.aac files. "
+            "Install FFmpeg or upload a .wav/.mp3/.flac/.ogg file."
+        )
+
+    logger.info(f"Converting {ext} → WAV via FFmpeg: {file_path}")
+    result = subprocess.run(
+        [
+            ffmpeg_bin, "-y",  # overwrite
+            "-i", file_path,
+            "-ar", "44100",  # standard sample rate
+            "-ac", "1",      # mono (librosa will mono anyway)
+            "-sample_fmt", "s16",  # 16-bit PCM
+            str(wav_path),
+        ],
+        capture_output=True,
+        text=True,
+        timeout=120,
+    )
+
+    if result.returncode != 0:
+        logger.error(f"FFmpeg conversion failed: {result.stderr}")
+        raise RuntimeError(
+            f"FFmpeg failed to convert {ext} to WAV: {result.stderr[:500]}"
+        )
+
+    logger.info(f"Conversion complete: {wav_path} ({wav_path.stat().st_size} bytes)")
+    return str(wav_path)
+
+
 def analyze_audio(file_path: str, audio_id: str) -> AudioAnalysisResponse:
     """
     Use librosa to load audio and compute:
@@ -23,8 +77,11 @@ def analyze_audio(file_path: str, audio_id: str) -> AudioAnalysisResponse:
     - per-frame bass/mid/treble energy
     - normalized energy (0..1)
     """
+    # Convert to WAV if needed (handles .m4a, .aac, .wma, etc.)
+    loadable_path = ensure_wav(file_path)
+    
     # Load audio
-    y, sr = librosa.load(file_path, sr=None, mono=True)
+    y, sr = librosa.load(loadable_path, sr=None, mono=True)
     duration = librosa.get_duration(y=y, sr=sr)
     
     # Beat tracking

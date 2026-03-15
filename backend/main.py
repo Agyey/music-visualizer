@@ -1,6 +1,7 @@
 import os
 import sys
 import json
+from pathlib import Path
 from loguru import logger
 from fastapi import FastAPI, UploadFile, File, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
@@ -79,9 +80,20 @@ async def upload_audio(
         logger.info("=== UPLOAD REQUEST RECEIVED ===")
         logger.info(f"Filename: {file.filename}, Content-Type: {file.content_type}")
         
-        # Check content type (allow None for some clients)
-        if file.content_type and not file.content_type.startswith("audio/"):
-            logger.warning(f"Invalid content type: {file.content_type}")
+        # Check content type (allow common audio MIME types + fallbacks)
+        # .m4a files may arrive as audio/mp4, video/mp4, or application/octet-stream
+        allowed_prefixes = ("audio/", "video/mp4", "application/octet-stream")
+        allowed_extensions = {".mp3", ".wav", ".m4a", ".flac", ".ogg", ".aac", ".wma", ".opus"}
+        file_ext = Path(file.filename).suffix.lower() if file.filename else ""
+        
+        content_ok = (
+            file.content_type is None
+            or file.content_type.startswith(allowed_prefixes)
+        )
+        ext_ok = file_ext in allowed_extensions
+        
+        if not content_ok and not ext_ok:
+            logger.warning(f"Invalid content type: {file.content_type}, extension: {file_ext}")
             raise HTTPException(status_code=400, detail="File must be an audio file")
         
         logger.info("Step 1: Saving audio file...")
