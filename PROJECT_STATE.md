@@ -45,9 +45,9 @@ A high-performance, cross-platform music visualization suite with deep audio ana
 6. **Infrastructure**: Add `railway.json` and `nixpacks.toml` for standardized deployment.
 
 ## 🚀 Standards Alignment Roadmap
-- [ ] **Task 1**: Migrate Backend to `loguru` and implement structured logging.
-- [ ] **Task 2**: Refactor `App.tsx` into Atomic components (Header, CanvasContainer, ControlPanels).
-- [ ] **Task 3**: Dynamic Port Binding in FastAPI.
+- [x] **Task 1**: Migrate Backend to `loguru` and implement structured logging.
+- [x] **Task 2**: Refactor `App.tsx` into Atomic components (Header, CanvasContainer, ControlPanels).
+- [x] **Task 3**: Dynamic Port Binding in FastAPI.
 - [ ] **Task 4**: Implement `useMemo`/`useCallback` across visualizers.
-- [ ] **Task 5**: Add `railway.json` configuration.
+- [x] **Task 5**: Add `railway.json` or `nixpacks.toml` configuration.
 - [ ] **Task 6**: Transition from local disk persistence to stateless architecture.

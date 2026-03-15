@@ -2,8 +2,8 @@
 NLP analysis for lyrics: sentiment, emotion, and translation.
 Uses multilingual models from Hugging Face transformers.
 """
-from transformers import pipeline, AutoTokenizer, AutoModelForSequenceClassification
-from typing import List, Dict, Optional
+from transformers import pipeline
+from typing import List, Dict
 from loguru import logger
 import numpy as np
 

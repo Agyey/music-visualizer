@@ -135,7 +135,7 @@ def analyze_audio_extended(file_path: str, audio_id: str, run_transcription: boo
             detected_language = transcription_result["detected_language"]
             
             # Analyze lyrics with NLP
-            logger.info(f"Analyzing lyrics with NLP...")
+            logger.info("Analyzing lyrics with NLP...")
             analyzed_lyrics = analyze_lyrics(transcription_result["segments"])
             
             # Convert to LyricSegment models
@@ -307,9 +307,9 @@ def detect_sections_enhanced(frames, beats, lyrics):
         ])
         section_emotion = None
         if lyrics:
-            section_lyrics = [l for l in lyrics if l.start >= section_start]
+            section_lyrics = [item for item in lyrics if item.get("start", 0) >= section_start]
             if section_lyrics:
-                emotions = [l.emotion for l in section_lyrics]
+                emotions = [item.get("emotion", "chill") for item in section_lyrics]
                 from collections import Counter
                 section_emotion = Counter(emotions).most_common(1)[0][0] if emotions else None
         

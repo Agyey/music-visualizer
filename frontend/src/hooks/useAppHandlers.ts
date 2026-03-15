@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect, useCallback } from 'react';
+import { useState, useRef, useCallback } from 'react';
 import { ExtendedAudioAnalysisResponse, VisualizerMode } from '../types/timeline';
 import { VisualizerEngine } from '../visualizers/VisualizerEngine';
 

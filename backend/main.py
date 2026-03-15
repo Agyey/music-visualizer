@@ -1,19 +1,10 @@
+import os
+import sys
+import json
+from loguru import logger
 from fastapi import FastAPI, UploadFile, File, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
-from pathlib import Path
-from loguru import logger
-import sys
-import json
-
-# Configure loguru for structured JSON logging in production
-logger.remove()
-logger.add(
-    sys.stdout,
-    format="{time} | {level} | {message}",
-    level="INFO",
-    serialize=False  # Set to True if structured JSON is required for Railway
-)
 
 from config import ASPECT_RATIOS, RESOLUTION_PRESETS, MEDIA_DIR, VIDEO_DIR
 from models import (
@@ -25,14 +16,22 @@ from storage import (
     save_audio_file, get_audio_path, video_output_path, generate_id,
     get_processed_audio_path, get_stems_dir, analysis_output_path
 )
-from audio_analysis import analyze_audio, analyze_audio_extended, load_analysis
+from audio_analysis import analyze_audio_extended
 from audio_processing import separate_stems, apply_audio_processing
 from render_video import render_visual_clip
+
+# Configure loguru for structured JSON logging in production
+logger.remove()
+logger.add(
+    sys.stdout,
+    format="{time} | {level} | {message}",
+    level="INFO",
+    serialize=False  # Set to True if structured JSON is required for Railway
+)
 
 app = FastAPI(title="Music Visualizer API")
 
 # CORS
-import os
 ALLOWED_ORIGINS = os.getenv(
     "ALLOWED_ORIGINS",
     "http://localhost:5173,http://localhost:3000,http://localhost:80"
@@ -77,7 +76,7 @@ async def upload_audio(
     import traceback
     
     try:
-        logger.info(f"=== UPLOAD REQUEST RECEIVED ===")
+        logger.info("=== UPLOAD REQUEST RECEIVED ===")
         logger.info(f"Filename: {file.filename}, Content-Type: {file.content_type}")
         
         # Check content type (allow None for some clients)
@@ -98,14 +97,14 @@ async def upload_audio(
             run_stems=run_stems
         )
         logger.info(f"Step 2 complete: Analysis done for audio_id={audio_id}")
-        logger.info(f"=== UPLOAD REQUEST SUCCESS ===")
+        logger.info("=== UPLOAD REQUEST SUCCESS ===")
         return analysis
         
     except HTTPException as he:
         logger.error(f"HTTPException: {he.detail}")
         raise
     except Exception as e:
-        logger.error(f"=== UPLOAD REQUEST FAILED ===")
+        logger.error("=== UPLOAD REQUEST FAILED ===")
         logger.error(f"Error: {str(e)}", exc_info=True)
         import traceback
         error_trace = traceback.format_exc()
@@ -139,7 +138,7 @@ async def process_audio(request: ProcessAudioRequest):
         if request.params.use_processed and not stems:
             try:
                 stems = separate_stems(str(audio_path), request.audio_id)
-            except Exception as e:
+            except Exception:
                 # Continue without stems if separation fails
                 pass
         
@@ -147,7 +146,7 @@ async def process_audio(request: ProcessAudioRequest):
         processed_audio_id = generate_id()
         
         # Apply processing
-        processed_path = apply_audio_processing(
+        _ = apply_audio_processing(
             str(audio_path),
             stems,
             request.params,
@@ -196,7 +195,7 @@ async def render_video(render_req: RenderRequest):
         # Try to load as ExtendedAudioAnalysisResponse
         try:
             analysis = ExtendedAudioAnalysisResponse(**analysis_data)
-        except:
+        except Exception:
             # Fall back to basic
             analysis = AudioAnalysisResponse(**analysis_data)
     except FileNotFoundError:

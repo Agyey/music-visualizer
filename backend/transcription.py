@@ -3,7 +3,6 @@ Whisper-based audio transcription with multilingual support.
 Supports Hindi, English, and auto language detection.
 """
 from faster_whisper import WhisperModel
-from pathlib import Path
 from typing import List, Dict, Optional
 from config import WHISPER_MODEL_SIZE, WHISPER_DEVICE
 from loguru import logger

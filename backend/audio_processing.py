@@ -6,15 +6,14 @@ import librosa
 import numpy as np
 import soundfile as sf
 from pathlib import Path
-from typing import Dict, Optional, Tuple
+from typing import Dict, Optional
 from loguru import logger
 import noisereduce as nr
 from scipy import signal
 from config import STEMS_DIR, PROCESSED_AUDIO_DIR, DEMUCS_MODEL
 import subprocess
-import os
 
-logger = logging.getLogger(__name__)
+
 
 
 def separate_stems(audio_path: str, audio_id: str) -> Dict[str, str]:

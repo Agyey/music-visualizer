@@ -1,13 +1,12 @@
 import numpy as np
-from PIL import Image, ImageDraw, ImageFilter
+from PIL import Image, ImageDraw
 from moviepy.editor import AudioFileClip, VideoClip
 from dataclasses import dataclass
-from typing import Dict, List, Tuple
+from typing import Dict, Tuple
 import math
 
 from models import AudioAnalysisResponse, ExtendedAudioAnalysisResponse, RenderRequest
 from config import FPS
-from storage import get_audio_path, video_output_path
 
 
 @dataclass
