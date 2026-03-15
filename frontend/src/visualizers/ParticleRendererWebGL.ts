@@ -443,7 +443,13 @@ export class ParticleRendererWebGL {
   }
 
   updateFeatures(_time: number, features: Features) {
-    this.features = features;
+    // Apply idle baselines so particles are always alive
+    const idlePulse = Math.sin(performance.now() / 1000 * 0.8) * 0.5 + 0.5;
+    this.features = { ...features };
+    this.features.bass = Math.max(this.features.bass, 0.15 + idlePulse * 0.15);
+    this.features.mid = Math.max(this.features.mid, 0.2 + idlePulse * 0.1);
+    this.features.treble = Math.max(this.features.treble, 0.12 + Math.sin(performance.now() / 1000 * 1.2) * 0.08);
+    this.features.energy = Math.max(this.features.energy, 0.2 + idlePulse * 0.15);
     this.updateParticlePhysics();
   }
 

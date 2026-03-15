@@ -134,6 +134,13 @@ export class ParticleRenderer {
     this.smoothedFeatures.lyricSentiment = features.lyricSentiment;
     this.smoothedFeatures.lyricEnergy = features.lyricEnergy;
     this.smoothedFeatures.currentSection = features.currentSection;
+
+    // Ensure minimum baselines so particles are always alive
+    const idlePulse = Math.sin(performance.now() / 1000 * 0.8) * 0.5 + 0.5;
+    this.smoothedFeatures.bass = Math.max(this.smoothedFeatures.bass, 0.15 + idlePulse * 0.15);
+    this.smoothedFeatures.mid = Math.max(this.smoothedFeatures.mid, 0.2 + idlePulse * 0.1);
+    this.smoothedFeatures.treble = Math.max(this.smoothedFeatures.treble, 0.12 + Math.sin(performance.now() / 1000 * 1.2) * 0.08);
+    this.smoothedFeatures.energy = Math.max(this.smoothedFeatures.energy, 0.2 + idlePulse * 0.15);
     
     this.features = this.smoothedFeatures;
     

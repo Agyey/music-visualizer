@@ -646,88 +646,105 @@ export class PsychedelicRenderer {
         float shimmer = sin(vortexP.x * 25.0 + u_time * 3.0) * sin(vortexP.y * 25.0 + u_time * 3.2);
         combinedPattern += shimmer * u_treble * 0.1;
         
-        // Warm, inviting color palette - oranges, reds, yellows, warm pinks
-        // Base hue in warm range (0.0-0.2 for reds/oranges/yellows, 0.8-1.0 for warm pinks)
-        float warmHueBase = 0.05; // Start with orange-red
-        float warmHueRange = 0.25; // Range from red through orange to yellow
+        // ═══ SECTION-AWARE COLOR PALETTE ═══
+        // Each section gets a distinct but beautiful hue range
+        float sectionHueBase = 0.7; // default purple
+        float sectionHueRange = 0.25;
         
-        // Create warm color variation
-        float hue1 = warmHueBase + fract(combinedPattern * 0.6 + u_time * 0.08 + u_lyric_intensity * 0.4) * warmHueRange;
-        float hue2 = warmHueBase + fract(combinedPattern * 0.5 + u_time * 0.12 + u_bass * 0.25) * warmHueRange;
-        
-        // Occasionally shift to warm pink/magenta range (0.85-0.95)
-        float pinkHue = 0.9 + fract(combinedPattern * 0.4 + u_time * 0.15) * 0.1;
-        float usePink = sin(u_time * 0.3 + u_energy * 2.0) * 0.5 + 0.5;
-        usePink = pow(usePink, 3.0); // Make it less frequent
-        
-        float hue = mix(mix(hue1, hue2, sin(u_time * 0.5) * 0.5 + 0.5), pinkHue, usePink * 0.3);
-        
-        // For fractals, add more color variation based on iteration count
-        if (patternType < 9.0 && fractalValue > 0.0) {
-          hue += fractalValue * 0.15; // Subtle variation
+        if (u_section_type == 0) { // intro — cool blues/cyans
+          sectionHueBase = 0.55;
+          sectionHueRange = 0.15;
+        } else if (u_section_type == 1) { // verse — deep purples/magentas
+          sectionHueBase = 0.75;
+          sectionHueRange = 0.2;
+        } else if (u_section_type == 2) { // chorus — vibrant pinks/magentas
+          sectionHueBase = 0.85;
+          sectionHueRange = 0.25;
+        } else if (u_section_type == 3) { // drop — fiery reds/oranges
+          sectionHueBase = 0.0;
+          sectionHueRange = 0.2;
+        } else if (u_section_type == 4) { // bridge — teal/aqua
+          sectionHueBase = 0.45;
+          sectionHueRange = 0.15;
         }
         
-        // Sentiment shifts between warm orange (positive) and warm red (intense)
-        hue += u_sentiment * 0.08;
+        // Create rich multi-hue variation
+        float hue1 = sectionHueBase + fract(combinedPattern * 0.6 + u_time * 0.06 + u_lyric_intensity * 0.3) * sectionHueRange;
+        float hue2 = sectionHueBase + fract(combinedPattern * 0.5 + u_time * 0.1 + u_bass * 0.2) * sectionHueRange;
+        
+        // Accent hue — complementary color, appears subtly
+        float accentHue = fract(sectionHueBase + 0.4 + combinedPattern * 0.3 + u_time * 0.08);
+        float useAccent = pow(sin(u_time * 0.25 + u_energy * 2.0) * 0.5 + 0.5, 3.0);
+        
+        float hue = mix(mix(hue1, hue2, sin(u_time * 0.5) * 0.5 + 0.5), accentHue, useAccent * 0.25);
+        
+        // Fractal value adds extra color banding
+        if (patternType < 9.0 && fractalValue > 0.0) {
+          hue += fractalValue * 0.2;
+        }
+        
+        hue += u_sentiment * 0.06;
         hue = fract(hue);
         
-        // Warm, inviting saturation - rich but not neon
-        float saturation = 0.75 + u_energy * 0.2 + u_beat_pulse * 0.1;
-        saturation = clamp(saturation, 0.6, 0.95);
+        // Rich saturation
+        float saturation = 0.78 + u_energy * 0.18 + u_beat_pulse * 0.08;
+        saturation = clamp(saturation, 0.65, 0.98);
         
-        // Bright, warm, glowing values with fractal enhancement
-        float value = 0.35 + combinedPattern * 0.65 + u_beat_pulse * 0.3;
+        // Bright glowing values with fractal enhancement
+        float value = 0.35 + combinedPattern * 0.65 + u_beat_pulse * 0.25;
         if (patternType < 9.0 && fractalValue > 0.0) {
-          // Make fractals bright and warm
-          value = 0.4 + fractalValue * 1.1 + u_beat_pulse * 0.4;
-          // Add soft edge highlighting for fractals
+          value = 0.4 + fractalValue * 1.1 + u_beat_pulse * 0.35;
           if (fractalValue > 0.0 && fractalValue < 0.15) {
-            value += (1.0 - fractalValue / 0.15) * 0.6;
+            value += (1.0 - fractalValue / 0.15) * 0.5;
           }
         }
-        value = clamp(value, 0.3, 1.0);
+        value = clamp(value, 0.25, 1.0);
         
         vec3 color = hsv2rgb(vec3(hue, saturation, value));
         
-        // Warm radial glow from center - soft and inviting
+        // ═══ CENTER GLOW — palette-tinted ═══
         float distFromCenter = length(uv);
-        float centerGlow = 1.0 - smoothstep(0.0, 0.9, distFromCenter);
-        // Warm golden-orange glow
-        vec3 warmGlow = vec3(1.0, 0.75, 0.5) * 0.4 + vec3(1.0, 0.5, 0.3) * 0.3;
-        color += centerGlow * warmGlow * u_energy * 0.5;
+        float centerGlow = 1.0 - smoothstep(0.0, 0.85, distFromCenter);
+        vec3 glowTint = hsv2rgb(vec3(fract(sectionHueBase + 0.05), 0.7, 0.8));
+        color += centerGlow * glowTint * u_energy * 0.4;
         
-        // Soft beat pulse creates gentle expanding waves
+        // ═══ BEAT PULSE WAVES ═══
         float pulseWave = sin((distFromCenter - u_beat_pulse * 2.0) * 18.0) * 0.5 + 0.5;
-        color *= 1.0 + pulseWave * u_beat_pulse * 0.4;
+        color *= 1.0 + pulseWave * u_beat_pulse * 0.35;
         
-        // Warm energy-based intensity boost
-        color *= 0.85 + u_energy * 0.5;
+        // Energy boost
+        color *= 0.85 + u_energy * 0.45;
         
-        // Subtle chromatic aberration for depth (treble-driven, warm tones)
-        float aberration = u_treble * 0.02;
-        vec3 colorR = hsv2rgb(vec3(hue + aberration * 0.5, saturation, value));
-        vec3 colorB = hsv2rgb(vec3(hue - aberration * 0.5, saturation, value));
-        color = mix(color, vec3(colorR.r, color.g, colorB.b), 0.3);
+        // ═══ CHROMATIC ABERRATION ═══
+        float aberration = u_treble * 0.025;
+        vec3 colorR = hsv2rgb(vec3(hue + aberration * 0.6, saturation, value));
+        vec3 colorB = hsv2rgb(vec3(hue - aberration * 0.6, saturation, value));
+        color = mix(color, vec3(colorR.r, color.g, colorB.b), 0.35);
         
-        // Warm sparkle from treble - golden highlights
+        // ═══ TREBLE SPARKLE ═══
         float sparkle = sin(uv.x * 50.0 + u_time * 2.5) * sin(uv.y * 50.0 + u_time * 2.7);
-        vec3 warmSparkle = vec3(1.0, 0.9, 0.7);
-        color += sparkle * u_treble * 0.12 * warmSparkle;
+        vec3 sparkleTint = hsv2rgb(vec3(fract(hue + 0.1), 0.6, 0.95));
+        color += sparkle * u_treble * 0.1 * sparkleTint;
         
-        // Warm bloom effect from beat - soft golden glow
-        float bloom = u_beat_pulse * 0.3;
-        vec3 warmBloom = vec3(1.0, 0.7, 0.4);
-        color += bloom * warmBloom;
+        // ═══ BEAT BLOOM ═══
+        float bloom = u_beat_pulse * 0.25;
+        vec3 bloomTint = hsv2rgb(vec3(fract(sectionHueBase + 0.15), 0.8, 0.9));
+        color += bloom * bloomTint;
         
-        // Add warm fractal edge glow - soft golden-white
+        // ═══ FRACTAL EDGE GLOW ═══
         if (patternType < 9.0 && fractalValue > 0.0 && fractalValue < 0.1) {
           float edgeGlow = 1.0 - smoothstep(0.0, 0.1, fractalValue);
-          vec3 warmEdgeGlow = vec3(1.0, 0.95, 0.8);
-          color += edgeGlow * 0.4 * warmEdgeGlow;
+          vec3 edgeTint = hsv2rgb(vec3(fract(hue + 0.3), 0.5, 0.95));
+          color += edgeGlow * 0.35 * edgeTint;
         }
         
-        // Additional warm ambient light
-        color += vec3(0.05, 0.03, 0.01) * (1.0 + u_energy * 0.3);
+        // ═══ AMBIENT TINT ═══
+        vec3 ambientTint = hsv2rgb(vec3(fract(sectionHueBase), 0.3, 0.1));
+        color += ambientTint * (1.0 + u_energy * 0.2);
+        
+        // ═══ CINEMATIC VIGNETTE ═══
+        float vignette = 1.0 - smoothstep(0.35, 1.1, distFromCenter);
+        color *= mix(0.5, 1.0, vignette);
         
         gl_FragColor = vec4(color, 1.0);
       }
@@ -798,6 +815,13 @@ export class PsychedelicRenderer {
     this.smoothedFeatures.lyricEnergy = features.lyricEnergy;
     this.smoothedFeatures.currentSection = features.currentSection;
     this.smoothedFeatures.emotion = features.emotion || "chill";
+
+    // Ensure minimum baselines so fractals are always alive
+    const idlePulse = Math.sin(performance.now() / 1000 * 0.8) * 0.5 + 0.5;
+    this.smoothedFeatures.bass = Math.max(this.smoothedFeatures.bass, 0.2 + idlePulse * 0.15);
+    this.smoothedFeatures.mid = Math.max(this.smoothedFeatures.mid, 0.25 + idlePulse * 0.1);
+    this.smoothedFeatures.treble = Math.max(this.smoothedFeatures.treble, 0.15 + Math.sin(performance.now() / 1000 * 1.2) * 0.1);
+    this.smoothedFeatures.energy = Math.max(this.smoothedFeatures.energy, 0.3 + idlePulse * 0.15);
     
     this.features = this.smoothedFeatures;
   }
