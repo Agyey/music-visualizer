@@ -1,8 +1,8 @@
 [phases.setup]
-nixPkgs = ["python312", "ffmpeg", "libsndfile"]
+nixPkgs = ["python312", "ffmpeg", "libsndfile", "pkg-config"]
 
 [phases.install]
-cmds = ["pip install -r requirements.txt"]
+cmds = ["python -m venv /app/.venv", "/app/.venv/bin/pip install --upgrade pip", "/app/.venv/bin/pip install -r requirements.txt"]
 
 [start]
-cmd = "python main.py"
+cmd = "/app/.venv/bin/python main.py"
