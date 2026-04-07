@@ -30,7 +30,7 @@ slowapi==0.1.9
 # Error monitoring
 sentry-sdk[fastapi]==2.19.2
 # Auth: JWT + OAuth + async DB
-python-jose[cryptography]==3.4.0
+python-jose[cryptography]==3.5.0
 httpx==0.27.2
 asyncpg==0.30.0
 sqlalchemy[asyncio]==2.0.36
