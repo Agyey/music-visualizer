@@ -3,6 +3,9 @@ import sys
 import json
 from pathlib import Path
 from loguru import logger
+import sentry_sdk
+from sentry_sdk.integrations.fastapi import FastApiIntegration
+from sentry_sdk.integrations.starlette import StarletteIntegration
 from fastapi import FastAPI, UploadFile, File, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
@@ -35,6 +38,48 @@ logger.add(
     level="INFO",
     serialize=False  # Set to True if structured JSON is required for Railway
 )
+
+_PII_HEADERS = frozenset({
+    "authorization", "cookie", "set-cookie", "x-api-key",
+    "x-auth-token", "x-forwarded-for",
+})
+
+
+def _sentry_before_send(event, hint):
+    """Scrub PII from Sentry events before transmission (OPS-002)."""
+    # Strip auth/session headers from request context
+    request = event.get("request", {})
+    headers = request.get("headers", {})
+    for key in list(headers):
+        if key.lower() in _PII_HEADERS:
+            headers[key] = "[Filtered]"
+
+    # Redact user IP
+    if "user" in event:
+        event["user"].pop("ip_address", None)
+
+    # Drop filenames from breadcrumbs (may contain user paths)
+    for crumb in event.get("breadcrumbs", {}).get("values", []):
+        if "data" in crumb and "filename" in crumb["data"]:
+            crumb["data"]["filename"] = "[Filtered]"
+
+    return event
+
+
+_SENTRY_DSN = os.getenv("SENTRY_DSN", "")
+if _SENTRY_DSN:
+    sentry_sdk.init(
+        dsn=_SENTRY_DSN,
+        integrations=[
+            StarletteIntegration(transaction_style="endpoint"),
+            FastApiIntegration(transaction_style="endpoint"),
+        ],
+        traces_sample_rate=float(os.getenv("SENTRY_TRACES_SAMPLE_RATE", "0.1")),
+        environment=os.getenv("RAILWAY_ENVIRONMENT", "development"),
+        before_send=_sentry_before_send,
+        send_default_pii=False,
+    )
+    logger.info("Sentry initialized")
 
 # Rate limiter
 limiter = Limiter(key_func=get_remote_address)
