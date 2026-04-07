@@ -7,6 +7,7 @@ import { VisualizerControls } from './components/VisualizerControls';
 import { RenderPanel } from './components/RenderPanel';
 import { AccountManager } from './components/AccountManager';
 import { QualityIndicator } from './components/QualityIndicator';
+import { ErrorBoundary } from './components/ErrorBoundary';
 import { useAppHandlers } from './hooks/useAppHandlers';
 
 /**
@@ -16,16 +17,7 @@ import { useAppHandlers } from './hooks/useAppHandlers';
  * analysis state, and UI panel coordination.
  */
 function App() {
-  const [user, setUser] = useState<any>(null);
   const [isMobile, setIsMobile] = useState(false);
-
-  // Load user from localStorage on mount
-  useEffect(() => {
-    const storedUser = localStorage.getItem('user');
-    if (storedUser) {
-      setUser(JSON.parse(storedUser));
-    }
-  }, []);
 
   // Detect mobile
   useEffect(() => {
@@ -54,7 +46,7 @@ function App() {
     handleLiveAudioStop,
     handleEngineReady,
     handleQualityOverride
-  } = useAppHandlers(user);
+  } = useAppHandlers();
 
   return (
     <div className="app-container" style={{ 
@@ -68,15 +60,22 @@ function App() {
       minHeight: '480px',
     }}>
       {/* Main Visualizer Canvas */}
-      <VisualizerCanvas 
-        analysis={analysis} 
-        audioRef={audioRef} 
-        mode={visualizerMode}
-        onEngineReady={handleEngineReady}
-        liveAnalyser={analyserNode}
-      />
+      <ErrorBoundary name="Visualizer" fallback={
+        <div style={{ width: '100%', height: '100%', background: '#000', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#666' }}>
+          Visualizer failed to load. Try refreshing.
+        </div>
+      }>
+        <VisualizerCanvas
+          analysis={analysis}
+          audioRef={audioRef}
+          mode={visualizerMode}
+          onEngineReady={handleEngineReady}
+          liveAnalyser={analyserNode}
+        />
+      </ErrorBoundary>
       
       {/* Panels for Controls and Settings */}
+      <ErrorBoundary name="Controls">
       <div className="controls-layer">
         {/* Top Left: Audio Source Panel */}
         <CollapsiblePanel
@@ -102,8 +101,6 @@ function App() {
           defaultExpanded={false}
         >
           <AccountManager
-            user={user}
-            setUser={setUser}
             showHistory={showHistory}
             setShowHistory={setShowHistory}
             onSelectFromHistory={handleSelectFromHistory}
@@ -152,6 +149,7 @@ function App() {
           />
         </CollapsiblePanel>
       </div>
+      </ErrorBoundary>
 
       {/* Persistent UI Elements */}
       {audioUrl && !liveStream && (

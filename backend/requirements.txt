@@ -26,3 +26,5 @@ certifi>=2024.8.30
 urllib3>=2.2.3
 # Modern Logging
 loguru==0.7.2
+# Rate limiting
+slowapi==0.1.9

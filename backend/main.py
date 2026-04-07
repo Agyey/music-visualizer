@@ -3,11 +3,17 @@ import sys
 import json
 from pathlib import Path
 from loguru import logger
-from fastapi import FastAPI, UploadFile, File, HTTPException
+from fastapi import FastAPI, UploadFile, File, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
+from slowapi import Limiter, _rate_limit_exceeded_handler
+from slowapi.util import get_remote_address
+from slowapi.errors import RateLimitExceeded
 
-from config import ASPECT_RATIOS, RESOLUTION_PRESETS, MEDIA_DIR, VIDEO_DIR
+from config import (
+    ASPECT_RATIOS, RESOLUTION_PRESETS, MEDIA_DIR, VIDEO_DIR,
+    MAX_UPLOAD_SIZE_BYTES, MAX_UPLOAD_SIZE_MB
+)
 from models import (
     AudioAnalysisResponse, ExtendedAudioAnalysisResponse,
     RenderRequest, RenderResponse,
@@ -30,20 +36,25 @@ logger.add(
     serialize=False  # Set to True if structured JSON is required for Railway
 )
 
-app = FastAPI(title="Music Visualizer API")
+# Rate limiter
+limiter = Limiter(key_func=get_remote_address)
 
-# CORS
+app = FastAPI(title="Music Visualizer API")
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+
+# CORS — scoped methods and headers instead of wildcards
 ALLOWED_ORIGINS = os.getenv(
     "ALLOWED_ORIGINS",
-    "http://localhost:5173,http://localhost:3000,http://localhost:80"
+    "http://localhost:5173,http://localhost:3000"
 ).split(",")
 
 app.add_middleware(
     CORSMiddleware,
     allow_origins=ALLOWED_ORIGINS,
     allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_methods=["GET", "POST", "OPTIONS"],
+    allow_headers=["Content-Type", "Authorization", "Accept"],
 )
 
 # Static files
@@ -61,47 +72,57 @@ async def test():
 
 
 @app.post("/upload-audio", response_model=ExtendedAudioAnalysisResponse)
+@limiter.limit("10/minute")
 async def upload_audio(
+    request: Request,
     file: UploadFile = File(...),
     run_transcription: bool = False,
     run_stems: bool = False
 ):
     """
     Upload audio file and perform extended analysis.
-    
+
     Args:
-        file: Audio file to upload
+        file: Audio file to upload (max 50MB)
         run_transcription: Whether to run Whisper transcription (default: False for speed)
         run_stems: Whether to run stem separation (can be slow, default: False)
     """
     import traceback
-    
+
     try:
         logger.info("=== UPLOAD REQUEST RECEIVED ===")
         logger.info(f"Filename: {file.filename}, Content-Type: {file.content_type}")
-        
+
+        # File size validation — read content and check size
+        contents = await file.read()
+        if len(contents) > MAX_UPLOAD_SIZE_BYTES:
+            raise HTTPException(
+                status_code=413,
+                detail=f"File too large. Maximum size is {MAX_UPLOAD_SIZE_MB}MB."
+            )
+        # Reset file position so save_audio_file can read it
+        await file.seek(0)
+
         # Check content type (allow common audio MIME types + fallbacks)
-        # .m4a files may arrive as audio/mp4, video/mp4, or application/octet-stream
         allowed_prefixes = ("audio/", "video/mp4", "application/octet-stream")
         allowed_extensions = {".mp3", ".wav", ".m4a", ".flac", ".ogg", ".aac", ".wma", ".opus"}
         file_ext = Path(file.filename).suffix.lower() if file.filename else ""
-        
+
         content_ok = (
             file.content_type is None
             or file.content_type.startswith(allowed_prefixes)
         )
         ext_ok = file_ext in allowed_extensions
-        
+
         if not content_ok and not ext_ok:
             logger.warning(f"Invalid content type: {file.content_type}, extension: {file_ext}")
             raise HTTPException(status_code=400, detail="File must be an audio file")
-        
+
         logger.info("Step 1: Saving audio file...")
         audio_id, file_path = save_audio_file(file)
         logger.info(f"Step 1 complete: audio_id={audio_id}, path={file_path}")
-        
+
         logger.info(f"Step 2: Starting analysis (transcription={run_transcription}, stems={run_stems})...")
-        # Run extended analysis with transcription and optional stems
         analysis = analyze_audio_extended(
             str(file_path),
             audio_id,
@@ -111,33 +132,30 @@ async def upload_audio(
         logger.info(f"Step 2 complete: Analysis done for audio_id={audio_id}")
         logger.info("=== UPLOAD REQUEST SUCCESS ===")
         return analysis
-        
-    except HTTPException as he:
-        logger.error(f"HTTPException: {he.detail}")
+
+    except HTTPException:
         raise
     except Exception as e:
         logger.error("=== UPLOAD REQUEST FAILED ===")
         logger.error(f"Error: {str(e)}", exc_info=True)
-        import traceback
         error_trace = traceback.format_exc()
         logger.error(f"Full traceback:\n{error_trace}")
         raise HTTPException(status_code=500, detail=f"Analysis failed: {str(e)}")
 
 
 @app.post("/process-audio", response_model=ProcessAudioResponse)
-async def process_audio(request: ProcessAudioRequest):
+@limiter.limit("10/minute")
+async def process_audio(request: Request, body: ProcessAudioRequest):
     """
     Apply audio processing (noise reduction, EQ, mixing, reverb, normalization).
     """
     try:
-        # Get original audio path
-        audio_path = get_audio_path(request.audio_id)
-        
+        audio_path = get_audio_path(body.audio_id)
+
         # Check for existing stems
-        stems_dir = get_stems_dir(request.audio_id)
+        stems_dir = get_stems_dir(body.audio_id)
         stems = None
         if stems_dir.exists():
-            # Look for stem files
             stem_files = {}
             for stem_name in ["vocals", "bass", "drums", "other"]:
                 stem_path = stems_dir / f"{stem_name}.wav"
@@ -145,31 +163,28 @@ async def process_audio(request: ProcessAudioRequest):
                     stem_files[stem_name] = str(stem_path)
             if stem_files:
                 stems = stem_files
-        
+
         # If stems needed but not found, try to separate
-        if request.params.use_processed and not stems:
+        if body.params.use_processed and not stems:
             try:
-                stems = separate_stems(str(audio_path), request.audio_id)
+                stems = separate_stems(str(audio_path), body.audio_id)
             except Exception:
-                # Continue without stems if separation fails
                 pass
-        
-        # Generate processed audio ID
+
         processed_audio_id = generate_id()
-        
-        # Apply processing
+
         _ = apply_audio_processing(
             str(audio_path),
             stems,
-            request.params,
+            body.params,
             processed_audio_id
         )
-        
+
         return ProcessAudioResponse(
-            audio_id=request.audio_id,
+            audio_id=body.audio_id,
             processed_audio_id=processed_audio_id
         )
-    
+
     except FileNotFoundError as e:
         raise HTTPException(status_code=404, detail=str(e))
     except Exception as e:
@@ -177,21 +192,21 @@ async def process_audio(request: ProcessAudioRequest):
 
 
 @app.post("/render-video", response_model=RenderResponse)
-async def render_video(render_req: RenderRequest):
+@limiter.limit("3/minute")
+async def render_video(request: Request, render_req: RenderRequest):
     """Render a video from analyzed audio."""
-    # Validate aspect ratio and resolution
     if render_req.aspect_ratio not in ASPECT_RATIOS:
         raise HTTPException(
             status_code=400,
             detail=f"Invalid aspect_ratio. Must be one of: {list(ASPECT_RATIOS.keys())}"
         )
-    
+
     if render_req.resolution_preset not in RESOLUTION_PRESETS:
         raise HTTPException(
             status_code=400,
             detail=f"Invalid resolution_preset. Must be one of: {list(RESOLUTION_PRESETS.keys())}"
         )
-    
+
     # Get audio path (use processed if provided, else original)
     try:
         if render_req.processed_audio_id:
@@ -200,35 +215,31 @@ async def render_video(render_req: RenderRequest):
             audio_path = get_audio_path(render_req.audio_id)
     except FileNotFoundError:
         raise HTTPException(status_code=404, detail="Audio file not found")
-    
-    # Load analysis (try extended first, fall back to basic)
+
+    # Load analysis — fixed file handle leak (was: json.load(open(...)))
+    analysis_path = analysis_output_path(render_req.audio_id)
     try:
-        analysis_data = json.load(open(analysis_output_path(render_req.audio_id)))
-        # Try to load as ExtendedAudioAnalysisResponse
+        with open(analysis_path) as f:
+            analysis_data = json.load(f)
         try:
             analysis = ExtendedAudioAnalysisResponse(**analysis_data)
         except Exception:
-            # Fall back to basic
             analysis = AudioAnalysisResponse(**analysis_data)
     except FileNotFoundError:
-        # Re-analyze if not found
         analysis = analyze_audio_extended(str(audio_path), render_req.audio_id, run_transcription=True)
-    
+
     # Compute dimensions
     ax, ay = ASPECT_RATIOS[render_req.aspect_ratio]
     h = RESOLUTION_PRESETS[render_req.resolution_preset]
     w = round(h * ax / ay)
-    
-    # Ensure even
+
     w = w if w % 2 == 0 else w + 1
     h = h if h % 2 == 0 else h + 1
-    
-    # Generate video ID and path
+
     video_id = generate_id()
     output_path = video_output_path(video_id)
-    
+
     try:
-        # Render video
         render_visual_clip(
             analysis,
             str(audio_path),
@@ -237,17 +248,15 @@ async def render_video(render_req: RenderRequest):
             render_req,
             str(output_path)
         )
-        
+
         video_url = f"/media/video/{video_id}.mp4"
         return RenderResponse(video_id=video_id, video_url=video_url)
-    
+
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Rendering failed: {str(e)}")
 
 
 if __name__ == "__main__":
     import uvicorn
-    import os
     port = int(os.getenv("PORT", 8000))
     uvicorn.run(app, host="0.0.0.0", port=port)
-

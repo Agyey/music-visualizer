@@ -12,6 +12,8 @@ VIDEO_DIR.mkdir(exist_ok=True)
 ANALYSIS_DIR.mkdir(exist_ok=True)
 
 FPS = 30  # frame rate for rendered video
+MAX_UPLOAD_SIZE_MB = 50
+MAX_UPLOAD_SIZE_BYTES = MAX_UPLOAD_SIZE_MB * 1024 * 1024  # 50 MB
 
 ASPECT_RATIOS = {
     "16:9": (16, 9),

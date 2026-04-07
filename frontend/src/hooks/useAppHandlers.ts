@@ -2,13 +2,7 @@ import { useState, useRef, useCallback } from 'react';
 import { ExtendedAudioAnalysisResponse, VisualizerMode } from '../types/timeline';
 import { VisualizerEngine } from '../visualizers/VisualizerEngine';
 
-interface User {
-  id: string;
-  email: string;
-  name: string;
-}
-
-export function useAppHandlers(user: User | null) {
+export function useAppHandlers() {
   const [analysis, setAnalysis] = useState<ExtendedAudioAnalysisResponse | null>(null);
   const [audioUrl, setAudioUrl] = useState<string | null>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
@@ -29,10 +23,8 @@ export function useAppHandlers(user: User | null) {
     setAudioUrl(url);
     audioRef.current = audioElement;
 
-    // Save to upload history
-    const historyKey = user 
-      ? `uploadHistory_${user.id}` 
-      : 'uploadHistory_anonymous';
+    // Save to upload history (anonymous until auth is implemented)
+    const historyKey = 'uploadHistory_anonymous';
     
     const existingHistory = JSON.parse(localStorage.getItem(historyKey) || '[]');
     const historyItem = {
@@ -52,7 +44,7 @@ export function useAppHandlers(user: User | null) {
     
     // Also save the full analysis for quick reload
     localStorage.setItem(`analysis_${newAnalysis.audio_id}`, JSON.stringify(newAnalysis));
-  }, [user]);
+  }, []);
 
   const handleSelectFromHistory = useCallback((_audioId: string, analysis: ExtendedAudioAnalysisResponse) => {
     setAnalysis(analysis);
