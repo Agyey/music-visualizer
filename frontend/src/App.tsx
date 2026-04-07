@@ -8,6 +8,7 @@ import { RenderPanel } from './components/RenderPanel';
 import { AccountManager } from './components/AccountManager';
 import { QualityIndicator } from './components/QualityIndicator';
 import { ErrorBoundary } from './components/ErrorBoundary';
+import { HeroDropZone } from './components/HeroDropZone';
 import { useAppHandlers } from './hooks/useAppHandlers';
 
 /**
@@ -59,6 +60,11 @@ function App() {
       minWidth: '320px',
       minHeight: '480px',
     }}>
+      {/* Hero drop zone shown until first audio is loaded (FE-002) */}
+      {!analysis && !liveStream && (
+        <HeroDropZone onAnalysisComplete={handleAnalysisComplete} />
+      )}
+
       {/* Main Visualizer Canvas */}
       <ErrorBoundary name="Visualizer" fallback={
         <div style={{ width: '100%', height: '100%', background: '#000', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#666' }}>

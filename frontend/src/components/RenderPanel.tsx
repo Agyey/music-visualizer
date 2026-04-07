@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useCallback } from 'react';
 import { ExtendedAudioAnalysisResponse } from '../types/timeline';
 import { renderVideo } from '../api';
 
@@ -17,6 +17,35 @@ export const RenderPanel: React.FC<RenderPanelProps> = ({ analysis, audioId }) =
   const [isRendering, setIsRendering] = useState(false);
   const [renderResult, setRenderResult] = useState<{ video_id: string; video_url: string } | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [copied, setCopied] = useState(false);
+
+  const videoUrl = renderResult ? `${API_BASE}${renderResult.video_url}` : null;
+
+  const handleCopyLink = useCallback(async () => {
+    if (!videoUrl) return;
+    try {
+      await navigator.clipboard.writeText(videoUrl);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch {
+      // Fallback for browsers without clipboard API
+      const el = document.createElement('textarea');
+      el.value = videoUrl;
+      document.body.appendChild(el);
+      el.select();
+      document.execCommand('copy');
+      document.body.removeChild(el);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    }
+  }, [videoUrl]);
+
+  const handleShareTwitter = useCallback(() => {
+    if (!videoUrl) return;
+    const text = encodeURIComponent('Check out this music visualization I created!');
+    const url = encodeURIComponent(videoUrl);
+    window.open(`https://twitter.com/intent/tweet?text=${text}&url=${url}`, '_blank', 'noopener');
+  }, [videoUrl]);
 
   const handleRender = async () => {
     if (!audioId || !analysis) {
@@ -239,6 +268,7 @@ export const RenderPanel: React.FC<RenderPanelProps> = ({ analysis, audioId }) =
               fontSize: '14px',
               fontWeight: '600',
               transition: 'all 0.2s',
+              marginBottom: '8px',
             }}
             onMouseEnter={(e) => {
               e.currentTarget.style.background = 'rgba(100, 200, 255, 0.3)';
@@ -249,6 +279,42 @@ export const RenderPanel: React.FC<RenderPanelProps> = ({ analysis, audioId }) =
           >
             📥 Download Video
           </a>
+
+          {/* Share row (FE-004) */}
+          <div style={{ display: 'flex', gap: '8px', marginTop: '4px' }}>
+            <button
+              onClick={handleCopyLink}
+              style={{
+                flex: 1,
+                padding: '8px',
+                background: copied ? 'rgba(0,200,100,0.2)' : 'rgba(255,255,255,0.07)',
+                border: '1px solid rgba(255,255,255,0.15)',
+                borderRadius: '6px',
+                color: copied ? '#4ecdc4' : '#ccc',
+                fontSize: '12px',
+                cursor: 'pointer',
+                transition: 'all 0.15s',
+              }}
+            >
+              {copied ? '✓ Copied!' : '🔗 Copy Link'}
+            </button>
+            <button
+              onClick={handleShareTwitter}
+              style={{
+                flex: 1,
+                padding: '8px',
+                background: 'rgba(29,161,242,0.12)',
+                border: '1px solid rgba(29,161,242,0.3)',
+                borderRadius: '6px',
+                color: '#1da1f2',
+                fontSize: '12px',
+                cursor: 'pointer',
+                transition: 'all 0.15s',
+              }}
+            >
+              𝕏 Share
+            </button>
+          </div>
         </div>
       )}
     </div>

@@ -316,6 +316,33 @@ async def me(current_user: dict = Depends(require_auth)):
     return {"user_id": current_user["sub"], "email": current_user.get("email")}
 
 
+@app.delete("/auth/me")
+async def delete_account(
+    current_user: dict = Depends(require_auth),
+    session=Depends(get_session),
+):
+    """Permanently delete the authenticated user's account and data (FE-006)."""
+    user_id = current_user["sub"]
+
+    if session is not None:
+        from sqlalchemy import delete as sa_delete
+        from database import User, AnalysisResult, RenderJob
+
+        try:
+            await session.execute(sa_delete(RenderJob).where(RenderJob.user_id == user_id))
+            await session.execute(sa_delete(AnalysisResult).where(AnalysisResult.user_id == user_id))
+            await session.execute(sa_delete(User).where(User.id == user_id))
+            await session.commit()
+        except Exception as exc:
+            logger.error(f"Account deletion DB error for {user_id}: {exc}")
+            raise HTTPException(status_code=500, detail="Account deletion failed.")
+
+    resp = JSONResponse({"status": "deleted"})
+    resp.delete_cookie("refresh_token", path="/auth/refresh")
+    resp.delete_cookie("access_token")
+    return resp
+
+
 @app.post("/upload-audio", response_model=ExtendedAudioAnalysisResponse)
 @limiter.limit("10/minute")
 async def upload_audio(

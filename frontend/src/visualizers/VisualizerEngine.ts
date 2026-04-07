@@ -3,7 +3,8 @@ import { GeometricRenderer } from './GeometricRenderer';
 import { PsychedelicRenderer } from './PsychedelicRenderer';
 import { ParticleRenderer } from './ParticleRenderer';
 import { ParticleRendererWebGL } from './ParticleRendererWebGL';
-import { ThreeDRenderer } from './ThreeDRenderer';
+// ThreeDRenderer (Three.js) is loaded lazily when the user first selects 3D mode (FE-003)
+type ThreeDRendererType = import('./ThreeDRenderer').ThreeDRenderer;
 import { VisualizerMode } from '../types/timeline';
 import { VisualizerQualityManager, QualityProfile } from './VisualizerQualityManager';
 
@@ -19,7 +20,9 @@ export class VisualizerEngine {
   private geometricRenderer: GeometricRenderer;
   private shaderRenderer: PsychedelicRenderer;
   private particleRenderer: ParticleRenderer | ParticleRendererWebGL;
-  private threeDRenderer: ThreeDRenderer;
+  private threeDRenderer: ThreeDRendererType | null = null;
+  private threeDCanvas: HTMLCanvasElement | null = null;
+  private threeDAnalysis: ExtendedAudioAnalysisResponse | null = null;
   
   // Each renderer gets its own canvas to avoid context conflicts
   private canvases: Map<string, HTMLCanvasElement> = new Map();
@@ -45,8 +48,10 @@ export class VisualizerEngine {
     const geometricCanvas = this.createCanvas('geometric');
     const psychedelicCanvas = this.createCanvas('psychedelic');
     const particlesCanvas = this.createCanvas('particles');
-    const threeDCanvas = this.createCanvas('threeD');
-    
+    // Three.js canvas created now; renderer loaded lazily on first mode switch
+    this.threeDCanvas = this.createCanvas('threeD');
+    this.threeDAnalysis = analysis;
+
     this.geometricRenderer = new GeometricRenderer(geometricCanvas, analysis);
     this.shaderRenderer = new PsychedelicRenderer(psychedelicCanvas, analysis);
     
@@ -68,8 +73,7 @@ export class VisualizerEngine {
       this.useWebGLParticles = false;
     }
     
-    this.threeDRenderer = new ThreeDRenderer(threeDCanvas, analysis);
-    this.threeDRenderer.setQualityProfile(this.currentQualityProfile);
+    // ThreeDRenderer is loaded lazily on first switch to "threeD" mode
     
     // Set initial quality on all renderers
     this.shaderRenderer.setQualityProfile(this.currentQualityProfile);
@@ -112,7 +116,7 @@ export class VisualizerEngine {
       this.particleRenderer.setQualityProfile(profile);
     }
     this.shaderRenderer.setQualityProfile(profile);
-    this.threeDRenderer.setQualityProfile(profile);
+    if (this.threeDRenderer) this.threeDRenderer.setQualityProfile(profile);
   }
   
   getQualityManager(): VisualizerQualityManager {
@@ -125,9 +129,18 @@ export class VisualizerEngine {
 
   setMode(mode: VisualizerMode) {
     if (this.mode === mode) return;
-    
-    // Switch mode and swap canvas visibility
-    // Use a short delay for a smoother visual transition
+
+    // Lazy-load Three.js only when 3D mode is selected for the first time (FE-003)
+    if (mode === 'threeD' && !this.threeDRenderer && this.threeDCanvas) {
+      const canvas = this.threeDCanvas;
+      const analysis = this.threeDAnalysis;
+      const profile = this.currentQualityProfile;
+      import('./ThreeDRenderer').then(({ ThreeDRenderer }) => {
+        this.threeDRenderer = new ThreeDRenderer(canvas, analysis);
+        this.threeDRenderer.setQualityProfile(profile);
+      }).catch(err => console.error('Failed to load ThreeDRenderer:', err));
+    }
+
     setTimeout(() => {
       this.mode = mode;
       this.updateCanvasVisibility();
@@ -274,7 +287,7 @@ export class VisualizerEngine {
   getGeometricRenderer() { return this.geometricRenderer; }
   getShaderRenderer() { return this.shaderRenderer; }
   getParticleRenderer() { return this.particleRenderer; }
-  getThreeDRenderer() { return this.threeDRenderer; }
+  getThreeDRenderer() { return this.threeDRenderer ?? undefined; }
   
   // Set particle variant (works for both WebGL and canvas)
   setParticleVariant(variant: "nebula" | "vortex_swarm" | "beat_fireworks" | "liquid_flow") {
