@@ -1,12 +1,15 @@
 import numpy as np
-from PIL import Image, ImageDraw
-from moviepy.editor import AudioFileClip, VideoClip
+import subprocess
+import shutil
 from dataclasses import dataclass
-from typing import Dict, Tuple
+from typing import Dict, Tuple, Optional
 import math
 
 from models import AudioAnalysisResponse, ExtendedAudioAnalysisResponse, RenderRequest
 from config import FPS
+
+# Locate FFmpeg once at import time
+FFMPEG_BIN = shutil.which("ffmpeg")
 
 
 @dataclass
@@ -28,16 +31,15 @@ def interpolate_features(analysis: AudioAnalysisResponse, t: float) -> Dict[str,
     frames = analysis.frames
     if not frames:
         return {"bass": 0.0, "mid": 0.0, "treble": 0.0, "energy": 0.0}
-    
+
     if t <= frames[0].time:
         f = frames[0]
         return {"bass": f.bass, "mid": f.mid, "treble": f.treble, "energy": f.energy}
-    
+
     if t >= frames[-1].time:
         f = frames[-1]
         return {"bass": f.bass, "mid": f.mid, "treble": f.treble, "energy": f.energy}
-    
-    # Find neighboring frames
+
     for i in range(len(frames) - 1):
         if frames[i].time <= t <= frames[i + 1].time:
             f0, f1 = frames[i], frames[i + 1]
@@ -48,7 +50,7 @@ def interpolate_features(analysis: AudioAnalysisResponse, t: float) -> Dict[str,
                 "treble": f0.treble + alpha * (f1.treble - f0.treble),
                 "energy": f0.energy + alpha * (f1.energy - f0.energy),
             }
-    
+
     return {"bass": 0.0, "mid": 0.0, "treble": 0.0, "energy": 0.0}
 
 
@@ -70,9 +72,6 @@ def get_current_section(analysis: AudioAnalysisResponse, t: float) -> str:
             if hasattr(section, 'start') and hasattr(section, 'end'):
                 if section.start <= t <= section.end:
                     return getattr(section, 'type', 'intro')
-            elif hasattr(section, 'start') and hasattr(section, 'end'):
-                if section.start <= t <= section.end:
-                    return getattr(section, 'type', 'intro')
     return "intro"
 
 
@@ -81,19 +80,17 @@ def get_visual_state(analysis: AudioAnalysisResponse, t: float) -> VisualStateAt
     feat = interpolate_features(analysis, t)
     pulse = get_beat_pulse(analysis, t)
     section = get_current_section(analysis, t)
-    
-    # Get sentiment/energy from extended analysis if available
+
     sentiment = 0.0
     lyric_energy = feat["energy"]
-    
+
     if isinstance(analysis, ExtendedAudioAnalysisResponse) and analysis.lyrics:
-        # Find current lyric segment
         for lyric in analysis.lyrics:
             if lyric.start <= t <= lyric.end:
                 sentiment = lyric.sentiment
                 lyric_energy = lyric.intensity
                 break
-    
+
     return VisualStateAtTime(
         time=t,
         bass=feat["bass"],
@@ -108,12 +105,12 @@ def get_visual_state(analysis: AudioAnalysisResponse, t: float) -> VisualStateAt
 
 
 def hsv_to_rgb(h: float, s: float, v: float) -> Tuple[int, int, int]:
-    """Convert HSV to RGB (0-255)."""
+    """Convert HSV to RGB (0-255). h in [0,360], s,v in [0,1]."""
     h = h % 360
     c = v * s
     x = c * (1 - abs((h / 60) % 2 - 1))
     m = v - c
-    
+
     if 0 <= h < 60:
         r, g, b = c, x, 0
     elif 60 <= h < 120:
@@ -126,345 +123,270 @@ def hsv_to_rgb(h: float, s: float, v: float) -> Tuple[int, int, int]:
         r, g, b = x, 0, c
     else:
         r, g, b = c, 0, x
-    
+
     return (int((r + m) * 255), int((g + m) * 255), int((b + m) * 255))
 
 
+# ── Vectorized frame generators (NumPy, no PIL pixel loops) ──
+
 def draw_geometric_frame(
-    state: VisualStateAtTime,
-    width: int,
-    height: int,
-    t: float
+    state: VisualStateAtTime, width: int, height: int, t: float
 ) -> np.ndarray:
-    """Draw enhanced geometric frame matching frontend visuals."""
-    img = Image.new("RGB", (width, height), (5, 6, 10))
-    draw = ImageDraw.Draw(img)
-    
+    """Draw geometric frame using NumPy operations."""
+    frame = np.full((height, width, 3), [5, 6, 10], dtype=np.uint8)
+
     cx, cy = width / 2, height / 2
     min_dim = min(width, height)
-    
-    # Shape morphing based on section
-    shape_phase = t * 0.5
-    morph = math.sin(shape_phase) * 0.5 + 0.5
     pulse_mult = 1.0 + state.beat_pulse * 0.3
-    
-    # Determine shape type
-    shape_type = state.current_section
-    if shape_type not in ["intro", "verse", "chorus", "drop", "bridge"]:
-        shape_type = "intro"
-    
-    # Draw multiple layers for depth
-    num_layers = 6
-    for layer in range(num_layers):
-        layer_scale = 0.7 + (layer / num_layers) * 0.6
-        outer_radius = min_dim * (0.15 + 0.2 * state.bass) * pulse_mult * layer_scale
-        inner_radius = outer_radius * (0.3 + state.mid * 0.4)
-        thickness = int(2 + state.energy * 6 + layer * 0.5)
-        
-        # Enhanced neon color
-        base_hue = 30 + state.lyric_sentiment * 60 + layer * 15
-        hue = (base_hue + state.treble * 50 + math.sin(t * 0.4 + layer) * 15) % 360
-        saturation = 0.9 + state.lyric_energy * 0.1
-        lightness = 0.65 + state.bass * 0.3
-        
-        color = hsv_to_rgb(hue, saturation, lightness)
-        
-        # Draw shape based on type
-        if shape_type == "intro" or (shape_type == "verse" and morph < 0.3):
-            # Circle
-            for offset in range(-thickness // 2, thickness // 2 + 1):
-                draw.ellipse(
-                    [cx - outer_radius - offset, cy - outer_radius - offset,
-                     cx + outer_radius + offset, cy + outer_radius + offset],
-                    outline=color, width=1
-                )
-        elif shape_type == "verse" or shape_type == "chorus":
-            # Polygon
-            sides = int(3 + 6 * (0.5 + morph * 0.5))
-            angle_step = 2 * math.pi / sides
-            rotation = t * 0.3 + state.treble * 0.2
-            points = []
-            for i in range(sides + 1):
-                angle = rotation + i * angle_step
-                r = outer_radius if i % 2 == 0 else inner_radius
-                x = cx + math.cos(angle) * r
-                y = cy + math.sin(angle) * r
-                points.append((x, y))
-            if len(points) > 2:
-                draw.polygon(points, outline=color, width=thickness)
-        elif shape_type == "drop":
-            # Mandala/star
-            segments = 8 + layer * 2
-            segment_angle = 2 * math.pi / segments
-            for seg in range(segments):
-                base_angle = t * 0.3 + seg * segment_angle
-                local_radius = outer_radius * (0.4 + state.energy * 0.6)
-                petal_points = []
-                for i in range(21):
-                    t_petal = i / 20
-                    angle = base_angle + t_petal * segment_angle * 0.8
-                    r = local_radius * math.sin(t_petal * math.pi)
-                    x = cx + math.cos(angle) * r
-                    y = cy + math.sin(angle) * r
-                    petal_points.append((x, y))
-                if len(petal_points) > 2:
-                    draw.polygon(petal_points, outline=color, width=thickness)
-    
-    # Enhanced frequency bars
+
+    # Frequency bars (vectorized)
     bar_count = 64
     h_max = min_dim * 0.5 * pulse_mult
-    bar_width = min_dim * 0.008
+    bar_w = max(1, int(min_dim * 0.008))
     spacing = min_dim * 0.012
-    
+
+    indices = np.arange(bar_count)
+    x_offsets = (indices - bar_count / 2 + 0.5) * (bar_w + spacing) + cx
+
+    bass_c = np.where(indices < bar_count * 0.3, state.bass, state.bass * 0.3)
+    mid_c = np.where((indices >= bar_count * 0.3) & (indices < bar_count * 0.7), state.mid, state.mid * 0.5)
+    treble_c = np.where(indices >= bar_count * 0.7, state.treble, state.treble * 0.3)
+
+    base_heights = h_max * (bass_c + mid_c + treble_c) / 3
+    jitter = np.sin(indices * 0.8 + t * 3) * state.treble * 0.15
+    bar_heights = base_heights * (1.0 + jitter)
+
+    edge_factor = 1.0 - (np.abs(indices - bar_count / 2) / (bar_count / 2)) ** 1.8 * 0.5
+    bar_heights *= edge_factor
+
     for i in range(bar_count):
-        x_offset = (i - bar_count / 2 + 0.5) * (bar_width + spacing)
-        x = cx + x_offset
-        
-        bass_contrib = state.bass * (1 if i < bar_count * 0.3 else 0.3)
-        mid_contrib = state.mid * (1 if bar_count * 0.3 <= i < bar_count * 0.7 else 0.5)
-        treble_contrib = state.treble * (1 if i >= bar_count * 0.7 else 0.3)
-        
-        base_height = h_max * (bass_contrib + mid_contrib + treble_contrib) / 3
-        jitter = math.sin(i * 0.8 + t * 3) * state.treble * 0.15
-        bar_h = base_height * (1.0 + jitter)
-        
-        edge_factor = 1.0 - (abs(i - bar_count / 2) / (bar_count / 2)) ** 1.8 * 0.5
-        bar_h *= edge_factor
-        
+        bh = int(bar_heights[i])
+        if bh < 1:
+            continue
+        x_left = int(x_offsets[i] - bar_w / 2)
+        x_right = x_left + bar_w
+        if x_left < 0 or x_right >= width:
+            continue
+
+        y_top = max(0, int(cy - bh / 2))
+        y_bot = min(height, int(cy + bh / 2))
+
         hue = (20 + (i / bar_count) * 60 + state.treble * 40) % 360
-        saturation = 0.85 + state.lyric_energy * 0.15
-        lightness = 0.6 + state.energy * 0.35
-        
-        color = hsv_to_rgb(hue, saturation, lightness)
-        
-        y_top = cy - bar_h / 2
-        y_bottom = cy + bar_h / 2
-        draw.rectangle(
-            [x - bar_width / 2, y_top, x + bar_width / 2, y_bottom],
-            fill=color
-        )
-    
-    return np.array(img)
+        color = hsv_to_rgb(hue, 0.85 + state.lyric_energy * 0.15, 0.6 + state.energy * 0.35)
+        frame[y_top:y_bot, x_left:x_right] = color
 
+    # Concentric rings
+    y_grid, x_grid = np.ogrid[:height, :width]
+    dx = x_grid - cx
+    dy = y_grid - cy
+    dist = np.sqrt(dx * dx + dy * dy)
 
-class ParticleSystem:
-    """Simple particle system for rendering."""
-    def __init__(self, width: int, height: int, count: int = 5000):
-        self.width = width
-        self.height = height
-        self.count = count
-        self.particles = []
-        self.init_particles()
-    
-    def init_particles(self):
-        """Initialize particles."""
-        for _ in range(self.count):
-            angle = np.random.random() * 2 * math.pi
-            speed = np.random.random() * 2 + 0.5
-            self.particles.append({
-                'x': np.random.random() * self.width,
-                'y': np.random.random() * self.height,
-                'vx': math.cos(angle) * speed,
-                'vy': math.sin(angle) * speed,
-                'life': np.random.random(),
-                'size': np.random.random() * 3 + 1,
-                'hue': np.random.random()
-            })
-    
-    def update(self, state: VisualStateAtTime, dt: float):
-        """Update particle positions."""
-        center_x, center_y = self.width / 2, self.height / 2
-        
-        for p in self.particles:
-            # Bass pushes outward
-            dx = p['x'] - center_x
-            dy = p['y'] - center_y
-            dist = math.sqrt(dx * dx + dy * dy) if (dx != 0 or dy != 0) else 1
-            if dist > 0:
-                force = state.bass * 0.08
-                p['vx'] += (dx / dist) * force
-                p['vy'] += (dy / dist) * force
-            
-            # Treble jitter
-            jitter = state.treble * 0.5
-            p['vx'] += (np.random.random() - 0.5) * jitter
-            p['vy'] += (np.random.random() - 0.5) * jitter
-            
-            # Mid swirling
-            swirl = state.mid * 0.03
-            vx_old = p['vx']
-            p['vx'] = p['vx'] * math.cos(swirl) - p['vy'] * math.sin(swirl)
-            p['vy'] = vx_old * math.sin(swirl) + p['vy'] * math.cos(swirl)
-            
-            # Damping
-            p['vx'] *= 0.98
-            p['vy'] *= 0.98
-            
-            # Update position
-            p['x'] += p['vx'] * dt * 60  # Scale for FPS
-            p['y'] += p['vy'] * dt * 60
-            
-            # Wrap boundaries
-            if p['x'] < 0:
-                p['x'] = self.width
-            if p['x'] > self.width:
-                p['x'] = 0
-            if p['y'] < 0:
-                p['y'] = self.height
-            if p['y'] > self.height:
-                p['y'] = 0
-            
-            # Update life
-            p['life'] -= 0.002
-            if p['life'] <= 0:
-                p['life'] = 1.0
-                p['x'] = np.random.random() * self.width
-                p['y'] = np.random.random() * self.height
+    for layer in range(6):
+        layer_scale = 0.7 + (layer / 6) * 0.6
+        radius = min_dim * (0.15 + 0.2 * state.bass) * pulse_mult * layer_scale
+        ring_mask = np.abs(dist - radius) < 1.5
 
+        hue = (30 + state.lyric_sentiment * 60 + layer * 15 + state.treble * 50) % 360
+        color = hsv_to_rgb(hue, 0.9, 0.65 + state.bass * 0.3)
+        frame[ring_mask] = color
 
-def draw_particle_frame(
-    state: VisualStateAtTime,
-    width: int,
-    height: int,
-    particle_system: ParticleSystem,
-    t: float
-) -> np.ndarray:
-    """Draw particle frame with theme-based colors."""
-    img = Image.new("RGB", (width, height), (5, 6, 10))
-    draw = ImageDraw.Draw(img)
-    
-    # Update particles
-    dt = 1.0 / FPS
-    particle_system.update(state, dt)
-    
-    # Theme-based color palette
-    theme_hue = 0
-    if state.current_section == "intro":
-        theme_hue = 200 + state.lyric_sentiment * 40
-    elif state.current_section == "verse":
-        theme_hue = 30 + state.lyric_sentiment * 60
-    elif state.current_section == "chorus":
-        theme_hue = 300 + state.lyric_sentiment * 40
-    elif state.current_section == "drop":
-        theme_hue = 0 + state.energy * 60
-    elif state.current_section == "bridge":
-        theme_hue = 180 + state.lyric_sentiment * 30
-    else:
-        theme_hue = 240 + state.energy * 60
-    
-    # Draw particles with trails
-    for p in particle_system.particles:
-        alpha = p['life']
-        energy_variation = (state.energy * 20 + t * 5) % 360
-        hue = (theme_hue + energy_variation * 0.2) % 360
-        saturation = 0.85 + state.lyric_energy * 0.15
-        lightness = 0.65 + state.energy * 0.25 + state.beat_pulse * 0.2
-        
-        color = hsv_to_rgb(hue, saturation, lightness)
-        
-        # Draw particle with glow
-        size = int(p['size'] * (1.0 + state.energy * 0.5))
-        for i in range(size):
-            glow_alpha = alpha * (1.0 - i / size)
-            glow_color = tuple(int(c * glow_alpha) for c in color)
-            draw.ellipse(
-                [p['x'] - size + i, p['y'] - size + i,
-                 p['x'] + size - i, p['y'] + size - i],
-                fill=glow_color
-            )
-    
-    return np.array(img)
+    return frame
 
 
 def draw_psychedelic_frame(
-    state: VisualStateAtTime,
-    width: int,
-    height: int,
-    t: float
+    state: VisualStateAtTime, width: int, height: int, t: float
 ) -> np.ndarray:
-    """Draw psychedelic frame with fractal-like patterns."""
-    img = Image.new("RGB", (width, height), (5, 6, 10))
-    draw = ImageDraw.Draw(img)
-    
+    """Draw psychedelic frame using fully vectorized NumPy (no pixel loops)."""
     cx, cy = width / 2, height / 2
     min_dim = min(width, height)
-    
-    # Create radial gradient base
-    for y in range(0, height, 2):  # Step for performance
-        for x in range(0, width, 2):
-            dx = x - cx
-            dy = y - cy
-            dist = math.sqrt(dx * dx + dy * dy) / (min_dim / 2)
-            
-            if dist > 1.0:
-                continue
-            
-            # Fractal-like pattern
-            angle = math.atan2(dy, dx)
-            radius = dist * min_dim / 2
-            
-            # Swirling distortion
-            swirl = state.mid * 2
-            angle += swirl * (radius / min_dim) + t * 0.5
-            
-            # Color based on position and audio
-            base_hue = (angle * 180 / math.pi + t * 50 + state.lyric_sentiment * 60) % 360
-            hue = base_hue + state.treble * 40
-            saturation = 0.9 + state.energy * 0.1
-            lightness = 0.4 + dist * 0.4 + state.bass * 0.3 + state.beat_pulse * 0.3
-            
-            color = hsv_to_rgb(hue, saturation, lightness)
-            
-            # Draw pixel
-            draw.rectangle([x, y, x + 2, y + 2], fill=color)
-    
-    # Add concentric circles with distortion
-    num_rings = 8
-    for i in range(num_rings):
-        r = min_dim * 0.1 * (i + 1) * (1.0 + state.bass * 0.5 + state.beat_pulse * 0.2)
-        
-        # Distorted circle
-        points = []
-        num_points = 100
-        for j in range(num_points + 1):
-            angle = j * 2 * math.pi / num_points
-            distortion = math.sin(angle * 5 + t * 2) * state.treble * r * 0.1
-            x = cx + math.cos(angle) * (r + distortion)
-            y = cy + math.sin(angle) * (r + distortion)
-            points.append((x, y))
-        
-        hue = (30 + i * 30 + state.lyric_sentiment * 60 + t * 20) % 360
-        color = hsv_to_rgb(hue, 0.9, 0.7)
-        draw.polygon(points, outline=color, width=2)
-    
-    return np.array(img)
+
+    y_grid, x_grid = np.mgrid[:height, :width]
+    dx = (x_grid - cx).astype(np.float32)
+    dy = (y_grid - cy).astype(np.float32)
+    dist = np.sqrt(dx * dx + dy * dy) / (min_dim / 2)
+    angle = np.arctan2(dy, dx)
+
+    # Swirling distortion
+    swirl = state.mid * 2
+    angle_mod = angle + swirl * dist + t * 0.5
+
+    # HSV computation (vectorized)
+    hue = (angle_mod * (180 / np.pi) + t * 50 + state.lyric_sentiment * 60) % 360
+    hue = (hue + state.treble * 40) % 360
+    sat = np.full_like(dist, 0.9 + state.energy * 0.1)
+    val = np.clip(0.4 + dist * 0.4 + state.bass * 0.3 + state.beat_pulse * 0.3, 0, 1)
+
+    # Mask outside unit circle to dark
+    outside = dist > 1.0
+    val[outside] = 0.02
+
+    # Vectorized HSV->RGB
+    h_sector = (hue / 60.0).astype(np.float32) % 6
+    c = val * sat
+    x_col = c * (1 - np.abs(h_sector % 2 - 1))
+    m = val - c
+
+    sector = h_sector.astype(np.int32) % 6
+    r = np.where(sector == 0, c, np.where(sector == 1, x_col, np.where(sector == 2, 0,
+        np.where(sector == 3, 0, np.where(sector == 4, x_col, c)))))
+    g = np.where(sector == 0, x_col, np.where(sector == 1, c, np.where(sector == 2, c,
+        np.where(sector == 3, x_col, np.where(sector == 4, 0, 0)))))
+    b = np.where(sector == 0, 0, np.where(sector == 1, 0, np.where(sector == 2, x_col,
+        np.where(sector == 3, c, np.where(sector == 4, c, x_col)))))
+
+    frame = np.stack([
+        np.clip((r + m) * 255, 0, 255).astype(np.uint8),
+        np.clip((g + m) * 255, 0, 255).astype(np.uint8),
+        np.clip((b + m) * 255, 0, 255).astype(np.uint8),
+    ], axis=-1)
+
+    # Add concentric distorted rings
+    for i in range(8):
+        ring_r = 0.1 * (i + 1) * (1.0 + state.bass * 0.5 + state.beat_pulse * 0.2)
+        distortion = np.sin(angle * 5 + t * 2) * state.treble * ring_r * 0.1
+        ring_mask = np.abs(dist - ring_r - distortion / (min_dim / 2)) < 0.008
+        ring_hue = (30 + i * 30 + state.lyric_sentiment * 60 + t * 20) % 360
+        ring_color = hsv_to_rgb(ring_hue, 0.9, 0.7)
+        frame[ring_mask] = ring_color
+
+    return frame
 
 
-def make_frame_factory(
-    analysis: AudioAnalysisResponse,
-    width: int,
-    height: int,
-    mode: str
-):
-    """Create frame factory function for VideoClip."""
-    particle_system = None
-    if mode == "particles":
-        particle_system = ParticleSystem(width, height, count=5000)
-    
-    def make_frame(t: float) -> np.ndarray:
-        state = get_visual_state(analysis, t)
-        
-        if mode == "geometric":
-            return draw_geometric_frame(state, width, height, t)
-        elif mode == "particles":
-            return draw_particle_frame(state, width, height, particle_system, t)
-        elif mode == "psychedelic":
-            return draw_psychedelic_frame(state, width, height, t)
-        else:
-            # Fallback to geometric
-            return draw_geometric_frame(state, width, height, t)
-    
-    return make_frame
+def draw_particle_frame(
+    state: VisualStateAtTime, width: int, height: int,
+    positions: np.ndarray, velocities: np.ndarray, lives: np.ndarray,
+    sizes: np.ndarray, t: float
+) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+    """Draw particle frame using vectorized NumPy. Returns (frame, positions, velocities, lives, sizes)."""
+    frame = np.full((height, width, 3), [5, 6, 10], dtype=np.uint8)
+    n = positions.shape[0]
+    cx, cy = width / 2, height / 2
+
+    # Vectorized physics
+    dx = positions[:, 0] - cx
+    dy = positions[:, 1] - cy
+    dist = np.sqrt(dx * dx + dy * dy)
+    dist = np.maximum(dist, 1.0)
+
+    # Bass pushes outward
+    force = state.bass * 0.08
+    velocities[:, 0] += (dx / dist) * force
+    velocities[:, 1] += (dy / dist) * force
+
+    # Treble jitter
+    jitter = state.treble * 0.5
+    velocities += (np.random.random((n, 2)).astype(np.float32) - 0.5) * jitter
+
+    # Mid swirl
+    swirl = state.mid * 0.03
+    cos_s, sin_s = math.cos(swirl), math.sin(swirl)
+    vx_old = velocities[:, 0].copy()
+    velocities[:, 0] = vx_old * cos_s - velocities[:, 1] * sin_s
+    velocities[:, 1] = vx_old * sin_s + velocities[:, 1] * cos_s
+
+    # Damping + update
+    velocities *= 0.98
+    positions += velocities * (60.0 / FPS)
+
+    # Wrap boundaries
+    positions[:, 0] = positions[:, 0] % width
+    positions[:, 1] = positions[:, 1] % height
+
+    # Life decay + respawn
+    lives -= 0.002
+    dead = lives <= 0
+    lives[dead] = 1.0
+    positions[dead, 0] = np.random.random(dead.sum()).astype(np.float32) * width
+    positions[dead, 1] = np.random.random(dead.sum()).astype(np.float32) * height
+
+    # Draw particles (scatter into frame)
+    hue_base = state.energy * 20 + t * 5
+    color = hsv_to_rgb(
+        (hue_base + 200) % 360,
+        0.85 + state.lyric_energy * 0.15,
+        0.65 + state.energy * 0.25 + state.beat_pulse * 0.2
+    )
+
+    px = np.clip(positions[:, 0].astype(np.int32), 0, width - 1)
+    py = np.clip(positions[:, 1].astype(np.int32), 0, height - 1)
+
+    # Scale brightness by life
+    bright = (lives * 255).astype(np.uint8)
+    scaled_color = np.stack([
+        (bright * color[0] // 255),
+        (bright * color[1] // 255),
+        (bright * color[2] // 255),
+    ], axis=-1).astype(np.uint8)
+
+    # Use maximum blend to avoid overwrite artifacts
+    for i in range(n):
+        frame[py[i], px[i]] = np.maximum(frame[py[i], px[i]], scaled_color[i])
+
+    return frame, positions, velocities, lives, sizes
+
+
+# ── FFmpeg pipe renderer ──
+
+class FFmpegPipeRenderer:
+    """Pipes raw RGB frames to FFmpeg for encoding. No moviepy dependency."""
+
+    def __init__(self, output_path: str, width: int, height: int, fps: int,
+                 audio_path: str, crf: int = 20):
+        if not FFMPEG_BIN:
+            raise RuntimeError("FFmpeg not found. Install FFmpeg to render video.")
+
+        self.width = width
+        self.height = height
+        self.process: Optional[subprocess.Popen] = None
+
+        cmd = [
+            FFMPEG_BIN, "-y",
+            # Video input: raw RGB frames from stdin
+            "-f", "rawvideo",
+            "-pix_fmt", "rgb24",
+            "-s", f"{width}x{height}",
+            "-r", str(fps),
+            "-i", "pipe:0",
+            # Audio input
+            "-i", audio_path,
+            # Map streams
+            "-map", "0:v", "-map", "1:a",
+            # Video encoding
+            "-vcodec", "libx264",
+            "-pix_fmt", "yuv420p",
+            "-crf", str(crf),
+            "-preset", "medium",
+            # Audio encoding
+            "-acodec", "aac",
+            "-b:a", "192k",
+            # Shortest stream determines length
+            "-shortest",
+            output_path,
+        ]
+
+        self.process = subprocess.Popen(
+            cmd, stdin=subprocess.PIPE, stderr=subprocess.PIPE
+        )
+
+    def write_frame(self, frame: np.ndarray) -> None:
+        """Write a single RGB frame (H, W, 3) uint8 to the pipe."""
+        if self.process and self.process.stdin:
+            self.process.stdin.write(frame.tobytes())
+
+    def close(self) -> str:
+        """Close pipe and wait for FFmpeg to finish. Returns stderr output."""
+        stderr_output = b""
+        if self.process:
+            if self.process.stdin:
+                self.process.stdin.close()
+            stderr_output = self.process.stderr.read() if self.process.stderr else b""
+            self.process.wait()
+            if self.process.returncode != 0:
+                raise RuntimeError(
+                    f"FFmpeg exited with code {self.process.returncode}: "
+                    f"{stderr_output.decode('utf-8', errors='replace')[-500:]}"
+                )
+        return stderr_output.decode("utf-8", errors="replace")
 
 
 def render_visual_clip(
@@ -475,33 +397,53 @@ def render_visual_clip(
     render_req: RenderRequest,
     output_path: str
 ) -> None:
-    """Render an MP4 video matching the visualizer style."""
-    # Ensure even dimensions
+    """Render an MP4 video by piping frames to FFmpeg."""
     width = width if width % 2 == 0 else width - 1
     height = height if height % 2 == 0 else height - 1
-    
-    # Load audio
-    audio_clip = AudioFileClip(str(audio_path))
-    
-    # Create frame factory
-    make_frame = make_frame_factory(analysis, width, height, render_req.visual_mode)
-    
-    # Create video clip
-    video_clip = VideoClip(make_frame, duration=analysis.duration)
-    video_clip = video_clip.set_audio(audio_clip)
-    video_clip = video_clip.set_fps(FPS)
-    
-    # Write video
-    video_clip.write_videofile(
-        str(output_path),
-        codec="libx264",
-        audio_codec="aac",
+
+    crf = 18 if render_req.resolution_preset == "4K" else 20
+
+    renderer = FFmpegPipeRenderer(
+        output_path=output_path,
+        width=width,
+        height=height,
         fps=FPS,
-        preset="medium",
-        threads=4,
-        bitrate="8000k" if render_req.resolution_preset == "4K" else "5000k"
+        audio_path=audio_path,
+        crf=crf,
     )
-    
-    # Cleanup
-    audio_clip.close()
-    video_clip.close()
+
+    mode = render_req.visual_mode
+    total_frames = int(analysis.duration * FPS)
+
+    # Initialize particle state if needed
+    particle_count = 5000
+    positions = velocities = lives = part_sizes = None
+    if mode == "particles":
+        positions = np.random.random((particle_count, 2)).astype(np.float32)
+        positions[:, 0] *= width
+        positions[:, 1] *= height
+        angles = np.random.random(particle_count).astype(np.float32) * 2 * np.pi
+        speeds = np.random.random(particle_count).astype(np.float32) * 2 + 0.5
+        velocities = np.stack([np.cos(angles) * speeds, np.sin(angles) * speeds], axis=-1)
+        lives = np.random.random(particle_count).astype(np.float32)
+        part_sizes = np.random.random(particle_count).astype(np.float32) * 3 + 1
+
+    try:
+        for frame_idx in range(total_frames):
+            t = frame_idx / FPS
+            state = get_visual_state(analysis, t)
+
+            if mode == "geometric":
+                frame = draw_geometric_frame(state, width, height, t)
+            elif mode == "psychedelic":
+                frame = draw_psychedelic_frame(state, width, height, t)
+            elif mode == "particles":
+                frame, positions, velocities, lives, part_sizes = draw_particle_frame(
+                    state, width, height, positions, velocities, lives, part_sizes, t
+                )
+            else:
+                frame = draw_geometric_frame(state, width, height, t)
+
+            renderer.write_frame(frame)
+    finally:
+        renderer.close()
