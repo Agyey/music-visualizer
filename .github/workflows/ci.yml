@@ -34,7 +34,7 @@ jobs:
         run: ruff check .
 
       - name: mypy
-        run: mypy . --ignore-missing-imports --exclude tests/
+        run: mypy . --ignore-missing-imports --exclude tests/ --explicit-package-bases
 
   backend-test:
     name: Backend Tests + Coverage

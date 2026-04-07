@@ -22,6 +22,7 @@ httpx==0.27.2
 # Security updates
 certifi>=2024.8.30
 urllib3>=2.2.3
+pyasn1>=0.6.3
 # Modern Logging
 loguru==0.7.2
 # Rate limiting
