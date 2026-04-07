@@ -35,6 +35,7 @@ class Base(DeclarativeBase):
 
 
 class User(Base):
+    """OAuth-authenticated users."""
     __tablename__ = "users"
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True)   # UUID
@@ -48,6 +49,45 @@ class User(Base):
     )
     last_login: Mapped[DateTime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
+
+
+class AnalysisResult(Base):
+    """Stores metadata for each audio analysis run (STO-007)."""
+    __tablename__ = "analysis_results"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)    # audio_id
+    user_id: Mapped[Optional[str]] = mapped_column(String(36), nullable=True)
+    filename: Mapped[Optional[str]] = mapped_column(String(512), nullable=True)
+    duration: Mapped[Optional[float]] = mapped_column(nullable=True)
+    bpm: Mapped[Optional[float]] = mapped_column(nullable=True)
+    has_lyrics: Mapped[bool] = mapped_column(default=False)
+    has_stems: Mapped[bool] = mapped_column(default=False)
+    # JSON blob of the full ExtendedAudioAnalysisResponse
+    analysis_json: Mapped[Optional[str]] = mapped_column(nullable=True)
+    created_at: Mapped[DateTime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
+
+
+class RenderJob(Base):
+    """Tracks video render jobs (STO-008)."""
+    __tablename__ = "render_jobs"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)    # video_id
+    user_id: Mapped[Optional[str]] = mapped_column(String(36), nullable=True)
+    audio_id: Mapped[str] = mapped_column(String(36))
+    visual_mode: Mapped[str] = mapped_column(String(32))
+    aspect_ratio: Mapped[str] = mapped_column(String(8))
+    resolution_preset: Mapped[str] = mapped_column(String(16))
+    status: Mapped[str] = mapped_column(String(16), default="pending")
+    # "pending" | "rendering" | "done" | "failed"
+    error_message: Mapped[Optional[str]] = mapped_column(nullable=True)
+    created_at: Mapped[DateTime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
+    completed_at: Mapped[Optional[DateTime]] = mapped_column(
+        DateTime(timezone=True), nullable=True
     )
 
 
@@ -158,3 +198,85 @@ async def get_user_by_id(session: AsyncSession, user_id: str) -> Optional[User]:
     from sqlalchemy import select
     result = await session.execute(select(User).where(User.id == user_id))
     return result.scalar_one_or_none()
+
+
+# ── AnalysisResult CRUD (STO-007) ─────────────────────────────────────────────
+
+async def save_analysis_result(
+    session: AsyncSession,
+    audio_id: str,
+    user_id: Optional[str],
+    filename: Optional[str],
+    duration: Optional[float],
+    bpm: Optional[float],
+    has_lyrics: bool,
+    has_stems: bool,
+    analysis_json: Optional[str] = None,
+) -> AnalysisResult:
+    """Upsert analysis metadata row."""
+    from sqlalchemy import select
+
+    result = await session.execute(
+        select(AnalysisResult).where(AnalysisResult.id == audio_id)
+    )
+    row = result.scalar_one_or_none()
+    if row is None:
+        row = AnalysisResult(
+            id=audio_id,
+            user_id=user_id,
+            filename=filename,
+            duration=duration,
+            bpm=bpm,
+            has_lyrics=has_lyrics,
+            has_stems=has_stems,
+            analysis_json=analysis_json,
+        )
+        session.add(row)
+    else:
+        row.analysis_json = analysis_json
+        row.has_lyrics = has_lyrics
+        row.has_stems = has_stems
+    await session.flush()
+    return row
+
+
+# ── RenderJob CRUD (STO-008) ──────────────────────────────────────────────────
+
+async def create_render_job(
+    session: AsyncSession,
+    video_id: str,
+    user_id: Optional[str],
+    audio_id: str,
+    visual_mode: str,
+    aspect_ratio: str,
+    resolution_preset: str,
+) -> RenderJob:
+    row = RenderJob(
+        id=video_id,
+        user_id=user_id,
+        audio_id=audio_id,
+        visual_mode=visual_mode,
+        aspect_ratio=aspect_ratio,
+        resolution_preset=resolution_preset,
+        status="rendering",
+    )
+    session.add(row)
+    await session.flush()
+    return row
+
+
+async def complete_render_job(
+    session: AsyncSession, video_id: str, success: bool, error: Optional[str] = None
+) -> None:
+    from sqlalchemy import select, func as sqlfunc
+    import datetime
+
+    result = await session.execute(
+        select(RenderJob).where(RenderJob.id == video_id)
+    )
+    row = result.scalar_one_or_none()
+    if row:
+        row.status = "done" if success else "failed"
+        row.error_message = error
+        row.completed_at = datetime.datetime.now(datetime.timezone.utc)
+        await session.flush()

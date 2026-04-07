@@ -1,0 +1,13 @@
+target-version = "py312"
+line-length = 100
+
+[lint]
+select = ["E", "F", "W", "I"]
+ignore = [
+  "E501",  # line too long (handled by formatter)
+  "F401",  # unused imports in __init__ files
+]
+exclude = ["tests/"]
+
+[lint.per-file-ignores]
+"__init__.py" = ["F401"]

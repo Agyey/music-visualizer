@@ -18,7 +18,11 @@ from slowapi.util import get_remote_address
 from slowapi.errors import RateLimitExceeded
 
 import auth as auth_module
-from database import init_db, close_db, get_session, upsert_user, get_user_by_id
+from database import (
+    init_db, close_db, get_session,
+    upsert_user, get_user_by_id,
+    save_analysis_result, create_render_job, complete_render_job,
+)
 
 from config import (
     ASPECT_RATIOS, RESOLUTION_PRESETS, MEDIA_DIR, VIDEO_DIR,
@@ -320,6 +324,7 @@ async def upload_audio(
     run_transcription: bool = False,
     run_stems: bool = False,
     current_user: Optional[dict] = Depends(get_current_user),
+    session=Depends(get_session),
 ):
     """
     Upload audio file and perform extended analysis.
@@ -373,6 +378,25 @@ async def upload_audio(
             run_stems=run_stems
         )
         logger.info(f"Step 2 complete: Analysis done for audio_id={audio_id}")
+
+        # Persist analysis metadata to DB (STO-007)
+        if session is not None:
+            import json as _json
+            try:
+                await save_analysis_result(
+                    session,
+                    audio_id=audio_id,
+                    user_id=user_id,
+                    filename=file.filename,
+                    duration=getattr(analysis, "duration", None),
+                    bpm=getattr(analysis, "bpm", None),
+                    has_lyrics=bool(getattr(analysis, "lyrics", None)),
+                    has_stems=getattr(analysis, "has_stems", False),
+                    analysis_json=_json.dumps(analysis.model_dump()),
+                )
+            except Exception as db_err:
+                logger.warning(f"DB analysis persist failed (non-fatal): {db_err}")
+
         logger.info("=== UPLOAD REQUEST SUCCESS ===")
         return analysis
 
@@ -445,6 +469,7 @@ async def render_video(
     request: Request,
     render_req: RenderRequest,
     current_user: Optional[dict] = Depends(get_current_user),
+    session=Depends(get_session),
 ):
     """Render a video from analyzed audio."""
     if render_req.aspect_ratio not in ASPECT_RATIOS:
@@ -493,6 +518,21 @@ async def render_video(
     video_id = generate_id()
     output_path = video_output_path(video_id, user_id=user_id)
 
+    # Create DB job record (STO-008)
+    if session is not None:
+        try:
+            await create_render_job(
+                session,
+                video_id=video_id,
+                user_id=user_id,
+                audio_id=render_req.audio_id,
+                visual_mode=render_req.visual_mode,
+                aspect_ratio=render_req.aspect_ratio,
+                resolution_preset=render_req.resolution_preset,
+            )
+        except Exception as db_err:
+            logger.warning(f"DB render job create failed (non-fatal): {db_err}")
+
     try:
         render_visual_clip(
             analysis,
@@ -503,10 +543,21 @@ async def render_video(
             str(output_path)
         )
 
+        if session is not None:
+            try:
+                await complete_render_job(session, video_id, success=True)
+            except Exception as db_err:
+                logger.warning(f"DB render job complete failed (non-fatal): {db_err}")
+
         video_url = f"/media/video/{video_id}.mp4"
         return RenderResponse(video_id=video_id, video_url=video_url)
 
     except Exception as e:
+        if session is not None:
+            try:
+                await complete_render_job(session, video_id, success=False, error=str(e))
+            except Exception:
+                pass
         raise HTTPException(status_code=500, detail=f"Rendering failed: {str(e)}")
 
 
