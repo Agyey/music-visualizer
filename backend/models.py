@@ -67,8 +67,8 @@ class AudioAnalysisResponse(BaseModel):
 
 class ExtendedAudioAnalysisResponse(AudioAnalysisResponse):
     """Extended analysis with transcription, emotion, and stems."""
-    lyrics: Optional[List[LyricSegment]] = None
-    sections: Optional[List[SectionInfo]] = None
+    lyrics: Optional[List[LyricSegment]] = None  # type: ignore[assignment]
+    sections: Optional[List[SectionInfo]] = None  # type: ignore[assignment]
     emotion_summary: Optional[AudioEmotionSummary] = None
     has_stems: bool = False
     detected_language: Optional[str] = None

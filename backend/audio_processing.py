@@ -245,6 +245,7 @@ def apply_audio_processing(
 
     # Load original audio
     y_original, sr = librosa.load(audio_path, sr=None, mono=False)
+    sr = int(sr)
     if y_original.ndim == 1:
         y_original = np.array([y_original, y_original])
 

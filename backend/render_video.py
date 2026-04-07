@@ -111,19 +111,22 @@ def hsv_to_rgb(h: float, s: float, v: float) -> Tuple[int, int, int]:
     c = v * s
     x = c * (1 - abs((h / 60) % 2 - 1))
     m = v - c
+    r: float = 0.0
+    g: float = 0.0
+    b: float = 0.0
 
     if 0 <= h < 60:
-        r, g, b = c, x, 0
+        r, g, b = c, x, 0.0
     elif 60 <= h < 120:
-        r, g, b = x, c, 0
+        r, g, b = x, c, 0.0
     elif 120 <= h < 180:
-        r, g, b = 0, c, x
+        r, g, b = 0.0, c, x
     elif 180 <= h < 240:
-        r, g, b = 0, x, c
+        r, g, b = 0.0, x, c
     elif 240 <= h < 300:
-        r, g, b = x, 0, c
+        r, g, b = x, 0.0, c
     else:
-        r, g, b = c, 0, x
+        r, g, b = c, 0.0, x
 
     return (int((r + m) * 255), int((g + m) * 255), int((b + m) * 255))
 
@@ -440,7 +443,7 @@ def render_visual_clip(
                 frame = draw_psychedelic_frame(state, width, height, t)
             elif mode == "particles":
                 frame, positions, velocities, lives, part_sizes = draw_particle_frame(
-                    state, width, height, positions, velocities, lives, part_sizes, t
+                    state, width, height, positions, velocities, lives, part_sizes, t  # type: ignore[arg-type]
                 )
             else:
                 frame = draw_geometric_frame(state, width, height, t)

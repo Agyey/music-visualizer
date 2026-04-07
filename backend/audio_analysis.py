@@ -459,7 +459,7 @@ def detect_sections(y, sr, duration, energy, times):
     return sections
 
 
-def load_lyrics(file_path: str, audio_id: str) -> list:
+def load_lyrics(file_path: str, audio_id: str) -> "list | None":
     """Load lyrics from .lrc file if available."""
     audio_path = Path(file_path)
     lrc_path = audio_path.parent / f"{audio_id}.lrc"

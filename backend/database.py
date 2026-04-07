@@ -281,5 +281,5 @@ async def complete_render_job(
     if row:
         row.status = "done" if success else "failed"
         row.error_message = error
-        row.completed_at = datetime.datetime.now(datetime.timezone.utc)
+        row.completed_at = datetime.datetime.now(datetime.timezone.utc)  # type: ignore[assignment]
         await session.flush()

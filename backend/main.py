@@ -114,7 +114,7 @@ limiter = Limiter(key_func=get_remote_address)
 
 app = FastAPI(title="Music Visualizer API")
 app.state.limiter = limiter
-app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)  # type: ignore[arg-type]
 
 # In-memory PKCE state store (state_token → {verifier, provider})
 # Replace with Redis in production (Sprint 6)
@@ -548,7 +548,7 @@ async def render_video(
         try:
             analysis = ExtendedAudioAnalysisResponse(**analysis_data)
         except Exception:
-            analysis = AudioAnalysisResponse(**analysis_data)
+            analysis = AudioAnalysisResponse(**analysis_data)  # type: ignore[assignment]
     except FileNotFoundError:
         analysis = analyze_audio_extended(str(audio_path), render_req.audio_id, run_transcription=True)
 

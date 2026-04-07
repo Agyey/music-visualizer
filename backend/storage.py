@@ -26,7 +26,7 @@ def _user_prefix(user_id: Optional[str]) -> str:
 def save_audio_file(upload_file: UploadFile, user_id: Optional[str] = None) -> tuple[str, Path]:
     """Save uploaded audio namespaced by user_id and return (audio_id, path)."""
     audio_id = generate_id()
-    ext = Path(upload_file.filename).suffix or ".mp3"
+    ext = Path(upload_file.filename or "").suffix or ".mp3"
     prefix = _user_prefix(user_id)
     user_dir = AUDIO_DIR / prefix
     user_dir.mkdir(parents=True, exist_ok=True)
