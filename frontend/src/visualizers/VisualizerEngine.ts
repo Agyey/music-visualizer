@@ -155,7 +155,7 @@ export class VisualizerEngine {
     this.geometricRenderer.updateAnalysis(analysis);
     this.shaderRenderer.updateAnalysis(analysis);
     this.particleRenderer.updateAnalysis(analysis);
-    this.threeDRenderer.updateAnalysis(analysis);
+    if (this.threeDRenderer) this.threeDRenderer.updateAnalysis(analysis);
   }
 
   updateFeatures(time: number, features: {
@@ -179,7 +179,7 @@ export class VisualizerEngine {
       case "geometric": return this.geometricRenderer;
       case "psychedelic": return this.shaderRenderer;
       case "particles": return this.particleRenderer;
-      case "threeD": return this.threeDRenderer;
+      case "threeD": return this.threeDRenderer ?? this.geometricRenderer;
       default: return this.geometricRenderer;
     }
   }
@@ -233,7 +233,7 @@ export class VisualizerEngine {
               canvas.height = rect.height;
             }
           }
-          this.threeDRenderer.render(time);
+          if (this.threeDRenderer) this.threeDRenderer.render(time);
           break;
         }
       }
@@ -272,7 +272,7 @@ export class VisualizerEngine {
     this.geometricRenderer.resize(renderWidth, renderHeight);
     this.shaderRenderer.resize(renderWidth, renderHeight, profile);
     this.particleRenderer.resize(renderWidth, renderHeight);
-    this.threeDRenderer.resize(renderWidth, renderHeight, profile);
+    if (this.threeDRenderer) this.threeDRenderer.resize(renderWidth, renderHeight, profile);
   }
 
   // Cleanup: remove canvases from DOM
@@ -335,6 +335,6 @@ export class VisualizerEngine {
     field_of_view?: number;
     depth_distortion?: number;
   }) {
-    this.threeDRenderer.setThreeDConfig(config);
+    if (this.threeDRenderer) this.threeDRenderer.setThreeDConfig(config);
   }
 }
