@@ -2,10 +2,12 @@
 Whisper-based audio transcription with multilingual support.
 Supports Hindi, English, and auto language detection.
 """
+from typing import Dict, List, Optional
+
 from faster_whisper import WhisperModel
-from typing import List, Dict, Optional
-from config import WHISPER_MODEL_SIZE, WHISPER_DEVICE
 from loguru import logger
+
+from config import WHISPER_DEVICE, WHISPER_MODEL_SIZE
 
 # Global model instance (lazy loaded)
 _model: Optional[WhisperModel] = None
@@ -27,11 +29,11 @@ def get_whisper_model() -> WhisperModel:
 def transcribe_audio(audio_path: str, language: Optional[str] = None) -> Dict:
     """
     Transcribe audio using Whisper.
-    
+
     Args:
         audio_path: Path to audio file
         language: Optional language code (e.g., "hi", "en"). If None, auto-detect.
-    
+
     Returns:
         Dict with:
             - segments: List of {start, end, text, language}
@@ -39,7 +41,7 @@ def transcribe_audio(audio_path: str, language: Optional[str] = None) -> Dict:
             - language_probability: float
     """
     model = get_whisper_model()
-    
+
     # Transcribe with language detection if not specified
     if language:
         segments, info = model.transcribe(
@@ -57,7 +59,7 @@ def transcribe_audio(audio_path: str, language: Optional[str] = None) -> Dict:
             vad_filter=True,
             vad_parameters=dict(min_silence_duration_ms=500)
         )
-    
+
     # Convert segments to list
     segment_list = []
     for segment in segments:
@@ -68,7 +70,7 @@ def transcribe_audio(audio_path: str, language: Optional[str] = None) -> Dict:
             "language": info.language,
             "no_speech_prob": float(segment.no_speech_prob) if hasattr(segment, 'no_speech_prob') else 0.0
         })
-    
+
     return {
         "segments": segment_list,
         "detected_language": info.language,

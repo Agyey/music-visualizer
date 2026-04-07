@@ -4,8 +4,8 @@ Covers: interpolate_features, get_beat_pulse, get_current_section,
         get_visual_state, hsv_to_rgb, VisualStateAtTime.
 """
 import math
-import sys
 import os
+import sys
 
 import numpy as np
 import pytest
@@ -13,18 +13,21 @@ import pytest
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 
 from models import (
-    AudioAnalysisResponse, ExtendedAudioAnalysisResponse,
-    BeatInfo, FrameFeature, LyricSegment, Section,
+    AudioAnalysisResponse,
+    BeatInfo,
+    ExtendedAudioAnalysisResponse,
+    FrameFeature,
+    LyricSegment,
+    Section,
 )
 from render_video import (
     VisualStateAtTime,
-    interpolate_features,
     get_beat_pulse,
     get_current_section,
     get_visual_state,
     hsv_to_rgb,
+    interpolate_features,
 )
-
 
 # ── Fixtures ──────────────────────────────────────────────────────────────────
 

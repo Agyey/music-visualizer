@@ -10,14 +10,14 @@ Env vars required:
   GITHUB_CLIENT_ID / GITHUB_CLIENT_SECRET
   OAUTH_REDIRECT_BASE — public backend URL, e.g. https://backend.example.com
 """
+import base64
+import hashlib
 import os
 import secrets
-import hashlib
-import base64
 import time
-from typing import Optional, Dict, Any
+from typing import Any, Dict, Optional
 
-from jose import jwt, JWTError
+from jose import JWTError, jwt
 from loguru import logger
 
 # ── Config ────────────────────────────────────────────────────────────────────

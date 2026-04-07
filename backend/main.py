@@ -1,45 +1,62 @@
+import json
 import os
 import sys
-import json
 from pathlib import Path
 from typing import Optional
-from loguru import logger
+
 import httpx
 import sentry_sdk
+from fastapi import Depends, FastAPI, File, HTTPException, Request, Security, UploadFile
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse, RedirectResponse
+from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
+from fastapi.staticfiles import StaticFiles
+from loguru import logger
 from sentry_sdk.integrations.fastapi import FastApiIntegration
 from sentry_sdk.integrations.starlette import StarletteIntegration
-from fastapi import FastAPI, UploadFile, File, HTTPException, Request, Depends, Security
-from fastapi.responses import RedirectResponse, JSONResponse
-from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
-from fastapi.middleware.cors import CORSMiddleware
-from fastapi.staticfiles import StaticFiles
 from slowapi import Limiter, _rate_limit_exceeded_handler
-from slowapi.util import get_remote_address
 from slowapi.errors import RateLimitExceeded
+from slowapi.util import get_remote_address
 
 import auth as auth_module
-from database import (
-    init_db, close_db, get_session,
-    upsert_user, get_user_by_id,
-    save_analysis_result, create_render_job, complete_render_job,
-)
-
+from audio_analysis import analyze_audio_extended
+from audio_processing import apply_audio_processing, separate_stems
 from config import (
-    ASPECT_RATIOS, RESOLUTION_PRESETS, MEDIA_DIR, VIDEO_DIR,
-    MAX_UPLOAD_SIZE_BYTES, MAX_UPLOAD_SIZE_MB
+    ASPECT_RATIOS,
+    MAX_UPLOAD_SIZE_BYTES,
+    MAX_UPLOAD_SIZE_MB,
+    MEDIA_DIR,
+    RESOLUTION_PRESETS,
+    VIDEO_DIR,
+)
+from database import (
+    close_db,
+    complete_render_job,
+    create_render_job,
+    get_session,
+    get_user_by_id,
+    init_db,
+    save_analysis_result,
+    upsert_user,
 )
 from models import (
-    AudioAnalysisResponse, ExtendedAudioAnalysisResponse,
-    RenderRequest, RenderResponse,
-    ProcessAudioRequest, ProcessAudioResponse
+    AudioAnalysisResponse,
+    ExtendedAudioAnalysisResponse,
+    ProcessAudioRequest,
+    ProcessAudioResponse,
+    RenderRequest,
+    RenderResponse,
 )
-from storage import (
-    save_audio_file, get_audio_path, video_output_path, generate_id,
-    get_processed_audio_path, get_stems_dir, analysis_output_path
-)
-from audio_analysis import analyze_audio_extended
-from audio_processing import separate_stems, apply_audio_processing
 from render_video import render_visual_clip
+from storage import (
+    analysis_output_path,
+    generate_id,
+    get_audio_path,
+    get_processed_audio_path,
+    get_stems_dir,
+    save_audio_file,
+    video_output_path,
+)
 
 # Configure loguru for structured JSON logging in production
 logger.remove()
@@ -326,7 +343,8 @@ async def delete_account(
 
     if session is not None:
         from sqlalchemy import delete as sa_delete
-        from database import User, AnalysisResult, RenderJob
+
+        from database import AnalysisResult, RenderJob, User
 
         try:
             await session.execute(sa_delete(RenderJob).where(RenderJob.user_id == user_id))

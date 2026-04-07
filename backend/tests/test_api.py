@@ -1,6 +1,7 @@
 """Tests for API endpoints — health, validation, rate limiting."""
-import pytest
 from io import BytesIO
+
+import pytest
 
 
 @pytest.mark.asyncio

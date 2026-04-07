@@ -1,12 +1,13 @@
-import numpy as np
-import subprocess
-import shutil
-from dataclasses import dataclass
-from typing import Dict, Tuple, Optional
 import math
+import shutil
+import subprocess
+from dataclasses import dataclass
+from typing import Dict, Optional, Tuple
 
-from models import AudioAnalysisResponse, ExtendedAudioAnalysisResponse, RenderRequest
+import numpy as np
+
 from config import FPS
+from models import AudioAnalysisResponse, ExtendedAudioAnalysisResponse, RenderRequest
 
 # Locate FFmpeg once at import time
 FFMPEG_BIN = shutil.which("ffmpeg")

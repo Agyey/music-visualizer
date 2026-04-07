@@ -2,10 +2,11 @@
 NLP analysis for lyrics: sentiment, emotion, and translation.
 Uses multilingual models from Hugging Face transformers.
 """
-from transformers import pipeline
-from typing import List, Dict
-from loguru import logger
+from typing import Dict, List
+
 import numpy as np
+from loguru import logger
+from transformers import pipeline
 
 # Global pipelines (lazy loaded)
 _sentiment_pipeline = None
@@ -54,32 +55,32 @@ def get_emotion_pipeline():
 def analyze_sentiment(text: str, language: str = "en") -> float:
     """
     Analyze sentiment of text. Returns -1 (negative) to 1 (positive).
-    
+
     Args:
         text: Text to analyze
         language: Language code
-    
+
     Returns:
         Sentiment score from -1 to 1
     """
     pipeline = get_sentiment_pipeline()
-    
+
     if pipeline is None:
         # Fallback: simple keyword-based sentiment
         return _fallback_sentiment(text)
-    
+
     try:
         # Truncate if too long
         text_truncated = text[:512] if len(text) > 512 else text
         result = pipeline(text_truncated)
-        
+
         # Handle different model outputs
         if isinstance(result, list) and len(result) > 0:
             result = result[0]
-        
+
         label = result.get("label", "").lower()
         score = result.get("score", 0.5)
-        
+
         # Map to -1..1 range
         if "positive" in label or "5" in label or "4" in label:
             return score
@@ -95,25 +96,25 @@ def analyze_sentiment(text: str, language: str = "en") -> float:
 def analyze_emotion(text: str, language: str = "en") -> str:
     """
     Classify emotion of text.
-    
+
     Returns:
         Emotion label: "happy", "sad", "angry", "chill", "hopeful", "neutral", etc.
     """
     pipeline = get_emotion_pipeline()
-    
+
     if pipeline is None:
         # Fallback: simple emotion detection
         return _fallback_emotion(text)
-    
+
     try:
         text_truncated = text[:512] if len(text) > 512 else text
         result = pipeline(text_truncated)
-        
+
         if isinstance(result, list) and len(result) > 0:
             result = result[0]
-        
+
         label = result.get("label", "neutral").lower()
-        
+
         # Map to our emotion categories
         emotion_map = {
             "joy": "happy",
@@ -125,7 +126,7 @@ def analyze_emotion(text: str, language: str = "en") -> str:
             "disgust": "angry",
             "neutral": "chill"
         }
-        
+
         return emotion_map.get(label, "chill")
     except Exception as e:
         logger.warning(f"Emotion analysis failed: {e}. Using fallback.")
@@ -135,52 +136,52 @@ def analyze_emotion(text: str, language: str = "en") -> str:
 def compute_intensity(text: str, sentiment: float) -> float:
     """
     Compute intensity (0..1) based on text and sentiment.
-    
+
     Args:
         text: Lyric text
         sentiment: Sentiment score (-1..1)
-    
+
     Returns:
         Intensity from 0 to 1
     """
     # Base intensity from text length and sentiment magnitude
     length_factor = min(len(text) / 50.0, 1.0)
     sentiment_magnitude = abs(sentiment)
-    
+
     # Combine factors
     intensity = 0.3 * length_factor + 0.7 * sentiment_magnitude
-    
+
     # Check for intensity keywords
     intensity_words = ["!", "!!", "!!!", "fire", "burn", "explode", "crash", "bang"]
     if any(word in text.lower() for word in intensity_words):
         intensity = min(intensity + 0.3, 1.0)
-    
+
     return float(np.clip(intensity, 0.0, 1.0))
 
 
 def analyze_lyrics(segments: List[Dict]) -> List[Dict]:
     """
     Analyze lyrics segments for sentiment, emotion, and intensity.
-    
+
     Args:
         segments: List of {start, end, text, language}
-    
+
     Returns:
         List of analyzed segments with sentiment, emotion, intensity
     """
     analyzed = []
-    
+
     for seg in segments:
         text = seg.get("text", "")
         language = seg.get("language", "en")
-        
+
         if not text or len(text.strip()) == 0:
             continue
-        
+
         sentiment = analyze_sentiment(text, language)
         emotion = analyze_emotion(text, language)
         intensity = compute_intensity(text, sentiment)
-        
+
         analyzed.append({
             "start": seg["start"],
             "end": seg["end"],
@@ -191,14 +192,14 @@ def analyze_lyrics(segments: List[Dict]) -> List[Dict]:
             "intensity": float(intensity),
             "translated_text": None  # Translation can be added later if needed
         })
-    
+
     return analyzed
 
 
 def compute_emotion_summary(analyzed_segments: List[Dict]) -> Dict:
     """
     Compute overall emotion summary from analyzed segments.
-    
+
     Returns:
         Dict with overall_sentiment, overall_emotion, arousal, valence
     """
@@ -209,25 +210,25 @@ def compute_emotion_summary(analyzed_segments: List[Dict]) -> Dict:
             "arousal": 0.5,
             "valence": 0.0
         }
-    
+
     sentiments = [s["sentiment"] for s in analyzed_segments]
     emotions = [s["emotion"] for s in analyzed_segments]
     intensities = [s["intensity"] for s in analyzed_segments]
-    
+
     # Overall sentiment (average)
     overall_sentiment = float(np.mean(sentiments))
-    
+
     # Most common emotion
     from collections import Counter
     emotion_counts = Counter(emotions)
     overall_emotion = emotion_counts.most_common(1)[0][0] if emotion_counts else "neutral"
-    
+
     # Arousal (average intensity)
     arousal = float(np.mean(intensities))
-    
+
     # Valence (sentiment mapped to -1..1)
     valence = overall_sentiment
-    
+
     return {
         "overall_sentiment": overall_sentiment,
         "overall_emotion": overall_emotion,
@@ -238,18 +239,18 @@ def compute_emotion_summary(analyzed_segments: List[Dict]) -> Dict:
 
 def _fallback_sentiment(text: str) -> float:
     """Fallback sentiment analysis using keywords."""
-    positive_words = ['love', 'happy', 'joy', 'great', 'wonderful', 'beautiful', 'amazing', 'good', 'yes', 
+    positive_words = ['love', 'happy', 'joy', 'great', 'wonderful', 'beautiful', 'amazing', 'good', 'yes',
                       'खुश', 'प्यार', 'अच्छा', 'शानदार']
     negative_words = ['hate', 'sad', 'pain', 'bad', 'terrible', 'awful', 'no', 'never', 'cry',
                       'दुख', 'नफरत', 'बुरा', 'क्रोध']
-    
+
     text_lower = text.lower()
     positive_count = sum(1 for word in positive_words if word in text_lower)
     negative_count = sum(1 for word in negative_words if word in text_lower)
-    
+
     if positive_count + negative_count == 0:
         return 0.0
-    
+
     sentiment = (positive_count - negative_count) / (positive_count + negative_count)
     return max(-1.0, min(1.0, sentiment))
 
@@ -257,7 +258,7 @@ def _fallback_sentiment(text: str) -> float:
 def _fallback_emotion(text: str) -> str:
     """Fallback emotion detection using keywords."""
     text_lower = text.lower()
-    
+
     if any(word in text_lower for word in ['happy', 'joy', 'smile', 'laugh', 'खुश']):
         return "happy"
     elif any(word in text_lower for word in ['sad', 'cry', 'tear', 'lonely', 'दुख']):

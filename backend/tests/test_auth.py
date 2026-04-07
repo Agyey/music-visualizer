@@ -12,17 +12,16 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 _TEST_SECRET = "test-secret-that-is-at-least-32-characters-long!!"
 os.environ.setdefault("JWT_SECRET", _TEST_SECRET)
 
-import auth as auth_module
-from auth import (
-    generate_pkce_pair,
-    generate_state,
+import auth as auth_module  # noqa: E402
+from auth import (  # noqa: E402
+    build_authorization_url,
     create_access_token,
     create_refresh_token,
     decode_access_token,
     decode_refresh_token,
-    build_authorization_url,
+    generate_pkce_pair,
+    generate_state,
 )
-
 
 # ── PKCE ─────────────────────────────────────────────────────────────────────
 

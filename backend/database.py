@@ -9,13 +9,16 @@ When DATABASE_URL is unset the module operates in a no-op mode so the app
 starts without a DB (useful for local dev without Neon credentials).
 """
 import os
-from typing import Optional, AsyncGenerator
+import uuid
+from typing import AsyncGenerator, Optional
 
 from loguru import logger
-from sqlalchemy import String, DateTime, func
+from sqlalchemy import DateTime, String, func
 from sqlalchemy.ext.asyncio import (
-    AsyncSession, AsyncEngine,
-    create_async_engine, async_sessionmaker,
+    AsyncEngine,
+    AsyncSession,
+    async_sessionmaker,
+    create_async_engine,
 )
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
@@ -154,8 +157,6 @@ async def get_session() -> AsyncGenerator[Optional[AsyncSession], None]:
 
 # ── User CRUD ─────────────────────────────────────────────────────────────────
 
-import uuid
-
 
 async def upsert_user(
     session: AsyncSession,
@@ -268,8 +269,10 @@ async def create_render_job(
 async def complete_render_job(
     session: AsyncSession, video_id: str, success: bool, error: Optional[str] = None
 ) -> None:
-    from sqlalchemy import select, func as sqlfunc
     import datetime
+
+    from sqlalchemy import func as sqlfunc
+    from sqlalchemy import select
 
     result = await session.execute(
         select(RenderJob).where(RenderJob.id == video_id)

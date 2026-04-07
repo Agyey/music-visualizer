@@ -1,12 +1,21 @@
 """Tests for Pydantic models — validates schema, defaults, and edge cases."""
 import pytest
 from pydantic import ValidationError
+
 from models import (
-    BeatInfo, FrameFeature, LyricEntry, LyricSegment,
-    Section, SectionInfo, AudioEmotionSummary,
-    AudioAnalysisResponse, ExtendedAudioAnalysisResponse,
-    AudioProcessingParams, ProcessAudioRequest,
-    RenderRequest, RenderResponse,
+    AudioAnalysisResponse,
+    AudioEmotionSummary,
+    AudioProcessingParams,
+    BeatInfo,
+    ExtendedAudioAnalysisResponse,
+    FrameFeature,
+    LyricEntry,
+    LyricSegment,
+    ProcessAudioRequest,
+    RenderRequest,
+    RenderResponse,
+    Section,
+    SectionInfo,
 )
 
 

@@ -4,9 +4,9 @@ All HuggingFace model calls are patched so tests run without GPU/network.
 Covers: analyze_sentiment, analyze_emotion, compute_intensity, analyze_lyrics,
         compute_emotion_summary, and both keyword fallbacks.
 """
-import sys
 import os
-from unittest.mock import patch, MagicMock
+import sys
+from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -14,15 +14,14 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 
 import nlp_analysis
 from nlp_analysis import (
-    analyze_sentiment,
-    analyze_emotion,
-    compute_intensity,
-    analyze_lyrics,
-    compute_emotion_summary,
-    _fallback_sentiment,
     _fallback_emotion,
+    _fallback_sentiment,
+    analyze_emotion,
+    analyze_lyrics,
+    analyze_sentiment,
+    compute_emotion_summary,
+    compute_intensity,
 )
-
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
 

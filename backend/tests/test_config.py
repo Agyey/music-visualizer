@@ -1,10 +1,18 @@
 """Tests for config module — validates constants and directory setup."""
 from pathlib import Path
+
 from config import (
-    MEDIA_DIR, AUDIO_DIR, VIDEO_DIR, ANALYSIS_DIR,
-    STEMS_DIR, PROCESSED_AUDIO_DIR,
-    FPS, ASPECT_RATIOS, RESOLUTION_PRESETS,
-    MAX_UPLOAD_SIZE_MB, MAX_UPLOAD_SIZE_BYTES,
+    ANALYSIS_DIR,
+    ASPECT_RATIOS,
+    AUDIO_DIR,
+    FPS,
+    MAX_UPLOAD_SIZE_BYTES,
+    MAX_UPLOAD_SIZE_MB,
+    MEDIA_DIR,
+    PROCESSED_AUDIO_DIR,
+    RESOLUTION_PRESETS,
+    STEMS_DIR,
+    VIDEO_DIR,
 )
 
 

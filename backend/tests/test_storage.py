@@ -1,6 +1,6 @@
 """Tests for storage.py — user-namespaced path helpers."""
-import sys
 import os
+import sys
 import tempfile
 from pathlib import Path
 from unittest.mock import MagicMock, patch
@@ -11,16 +11,15 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 
 import storage
 from storage import (
+    ANONYMOUS_USER_ID,
     _user_prefix,
-    generate_id,
-    video_output_path,
     analysis_output_path,
+    generate_id,
     get_audio_path,
     get_processed_audio_path,
     get_stems_dir,
-    ANONYMOUS_USER_ID,
+    video_output_path,
 )
-
 
 # ── _user_prefix ──────────────────────────────────────────────────────────────
 

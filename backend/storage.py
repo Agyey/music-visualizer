@@ -1,8 +1,10 @@
 import uuid
 from pathlib import Path
 from typing import Optional
+
 from fastapi import UploadFile
-from config import AUDIO_DIR, VIDEO_DIR, ANALYSIS_DIR, STEMS_DIR, PROCESSED_AUDIO_DIR
+
+from config import ANALYSIS_DIR, AUDIO_DIR, PROCESSED_AUDIO_DIR, STEMS_DIR, VIDEO_DIR
 
 # Sentinel used when no authenticated user is present.
 ANONYMOUS_USER_ID = "anonymous"
