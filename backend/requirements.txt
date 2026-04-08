@@ -1,6 +1,6 @@
 fastapi==0.135.3
 uvicorn[standard]==0.34.0
-pydantic==2.10.5
+pydantic==2.12.5
 python-multipart==0.0.22
 librosa==0.10.2
 soundfile==0.12.1
